@@ -4,9 +4,15 @@ import cv2
 import numpy as np
 
 
-def wait_for_image(path, timeout=30, confidence=0.8, interval=0.5):
+def wait_for_image(path, timeout=30, confidence=0.8, interval=0.5, stop_event=None):
+    """
+    Ждёт появления изображения на экране.
+    stop_event — threading.Event для прерывания ожидания из другого потока.
+    """
     start = time.time()
     while time.time() - start < timeout:
+        if stop_event and stop_event.is_set():
+            return None
         loc = pg.locateOnScreen(path, confidence=confidence)
         if loc:
             return loc
@@ -15,9 +21,10 @@ def wait_for_image(path, timeout=30, confidence=0.8, interval=0.5):
 
 
 def find_image_in_region(region, image_path, confidence=0.8):
+    """Ищет изображение в регионе экрана через OpenCV."""
     needle = cv2.imread(image_path)
     if needle is None:
-        return None
+        raise FileNotFoundError(f"Файл изображения не найден: {image_path}")
 
     needle_h, needle_w = needle.shape[:2]
 

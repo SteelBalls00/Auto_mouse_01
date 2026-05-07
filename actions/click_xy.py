@@ -1,8 +1,11 @@
 import pyautogui as pg
 from actions.base import Action
 
+
 class ClickXYAction(Action):
-    name = "Click XY"
+    name = "Клик по координатам"
+    param_labels = {"x": "X", "y": "Y"}
+    icon = "🖱"
 
     def execute(self, context):
         pg.click(self.params["x"], self.params["y"])

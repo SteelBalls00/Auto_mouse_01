@@ -1,9 +1,14 @@
-# actions/run_program.py
 import subprocess
 from actions.base import Action
 
+
 class RunProgramAction(Action):
-    name = "Run Program"
+    name = "Запустить программу"
+    param_labels = {"path": "Путь к программе"}
+    icon = "🚀"
 
     def execute(self, context):
-        subprocess.Popen(self.params["path"])
+        path = self.params["path"]
+        if not path:
+            raise ValueError("Путь к программе не задан")
+        subprocess.Popen(path, shell=True)
