@@ -1,0 +1,150 @@
+from PyQt5.QtCore import pyqtSignal, Qt, QMimeData
+from PyQt5.QtWidgets import (
+    QTreeWidget, QTreeWidgetItem, QAbstractItemView,
+    QWidget, QVBoxLayout, QLineEdit
+)
+
+
+MIME_ACTION_TYPE = "application/x-rpa-action-type"
+
+
+# Какое действие в какую группу попадает
+ACTION_GROUPS = [
+    ("Основное", [
+        "wait", "type_text", "press_key", "run_program", "cmd", "python_eval"
+    ]),
+    ("Мышь и координаты", [
+        "click_xy"
+    ]),
+    ("Изображения", [
+        "wait_image", "click_image", "click_image_in_window"
+    ]),
+    ("Окна и элементы", [
+        "find_window", "window_focus", "window_click_xy", "window_click_element"
+    ]),
+    ("Управление потоком", [
+        "if_start", "else", "end_if",
+        "for_each_start", "end_for", "break", "continue"
+    ]),
+    ("Базы данных", [
+        "sql", "sql_many"
+    ]),
+    ("Специальные", [
+        "uni_stat_2003"
+    ]),
+]
+
+
+class ActionPaletteTree(QTreeWidget):
+    actionChosen = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setHeaderHidden(True)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setStyleSheet(
+            "QTreeWidget { font-size: 12px; }"
+            "QTreeWidget::item { padding: 3px 4px; }"
+            "QTreeWidget::item:hover { background: #e0e7ff; }"
+        )
+
+        self.itemDoubleClicked.connect(self._on_double_click)
+        self._populate()
+
+    def _populate(self):
+        from app.actions.registry import ACTION_REGISTRY
+
+        # Создаём индекс — какие действия уже распределены по группам
+        grouped = set()
+        for _, types in ACTION_GROUPS:
+            grouped.update(types)
+
+        for group_name, types in ACTION_GROUPS:
+            group_item = QTreeWidgetItem(self, [group_name])
+            group_item.setFlags(Qt.ItemIsEnabled)
+            font = group_item.font(0)
+            font.setBold(True)
+            group_item.setFont(0, font)
+            group_item.setExpanded(True)
+
+            for action_type in types:
+                if action_type not in ACTION_REGISTRY:
+                    continue
+                cls  = ACTION_REGISTRY[action_type][0]
+                icon = getattr(cls, "icon", "•")
+                leaf = QTreeWidgetItem(group_item, [f"{icon}  {cls.name}"])
+                leaf.setData(0, Qt.UserRole, action_type)
+                leaf.setFlags(
+                    Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+                )
+
+        # Прочие — действия, которые забыли распределить
+        misc = [t for t in ACTION_REGISTRY.keys() if t not in grouped]
+        if misc:
+            group_item = QTreeWidgetItem(self, ["Прочее"])
+            group_item.setFlags(Qt.ItemIsEnabled)
+            font = group_item.font(0); font.setBold(True); group_item.setFont(0, font)
+            group_item.setExpanded(True)
+            for action_type in misc:
+                cls  = ACTION_REGISTRY[action_type][0]
+                icon = getattr(cls, "icon", "•")
+                leaf = QTreeWidgetItem(group_item, [f"{icon}  {cls.name}"])
+                leaf.setData(0, Qt.UserRole, action_type)
+                leaf.setFlags(
+                    Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+                )
+
+    def _on_double_click(self, item):
+        action_type = item.data(0, Qt.UserRole)
+        if action_type:
+            self.actionChosen.emit(action_type)
+
+    def mimeData(self, items):
+        m = QMimeData()
+        if items:
+            action_type = items[0].data(0, Qt.UserRole)
+            if action_type:
+                m.setData(MIME_ACTION_TYPE, action_type.encode("utf-8"))
+                m.setText(action_type)
+        return m
+
+    def filter_text(self, text):
+        """Фильтрация: показать только листья, чей текст содержит подстроку."""
+        needle = (text or "").lower().strip()
+        for i in range(self.topLevelItemCount()):
+            group = self.topLevelItem(i)
+            any_visible = False
+            for j in range(group.childCount()):
+                leaf = group.child(j)
+                visible = (needle == "") or (needle in leaf.text(0).lower())
+                leaf.setHidden(not visible)
+                any_visible |= visible
+            group.setHidden(not any_visible)
+            if needle:
+                group.setExpanded(any_visible)
+
+
+class ActionPalette(QWidget):
+    """
+    Палитра: дерево групп + поле поиска снизу.
+    actionChosen(type) — двойной клик
+    """
+    actionChosen = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.tree = ActionPaletteTree()
+        self.tree.actionChosen.connect(self.actionChosen.emit)
+        layout.addWidget(self.tree, 1)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("🔍 Поиск действия…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.tree.filter_text)
+        layout.addWidget(self.search)
