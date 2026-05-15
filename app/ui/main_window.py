@@ -166,7 +166,8 @@ class MainWindow(QMainWindow):
         self.btn_stop.setEnabled(True)
         self._runner = ScenarioRunner(
             self.actions, self,
-            start_from=idx, single_step=True
+            start_from=idx, single_step=True,
+            scenario_name=self._current_scenario_name(),
         )
         self._runner.log_line.connect(self.log.append)
         self._runner.step_started.connect(self._highlight_step)
@@ -438,12 +439,23 @@ class MainWindow(QMainWindow):
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
-        self._runner = ScenarioRunner(self.actions, self, start_from=start_from)
+        self._runner = ScenarioRunner(
+            self.actions, self,
+            start_from=start_from,
+            scenario_name=self._current_scenario_name(),
+        )
         self._runner.log_line.connect(self.log.append)
         self._runner.step_started.connect(self._highlight_step)
         self._runner.finished_ok.connect(self._on_runner_done)
         self._runner.finished_error.connect(self._on_runner_error)
         self._runner.start()
+
+    def _current_scenario_name(self):
+        """Имя текущего сценария — из пути к scenario.json или 'unsaved'."""
+        if self._scenario_path:
+            scenario_dir = os.path.dirname(self._scenario_path)
+            return os.path.basename(scenario_dir)
+        return "unsaved"
 
     def _stop_scenario(self):
         if self._runner and self._runner.isRunning():
