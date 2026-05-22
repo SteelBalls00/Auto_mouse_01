@@ -21,6 +21,13 @@ from app.actions.python_eval import PythonEvalAction
 from app.actions.run_scenario import RunScenarioAction
 from app.actions.while_loop import WhileStartAction, EndWhileAction
 from app.actions.checks import CheckImageAction, CheckProcessAction, CheckWindowAction
+from app.actions.process_service import (
+    KillProcessAction, StartServiceAction, StopServiceAction
+)
+from app.actions.files import (
+    CopyFileAction, MoveFileAction, DeleteFileAction,
+    FindFilesAction, SetFileAttrAction, CheckFileAction
+)
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -185,5 +192,41 @@ ACTION_REGISTRY = {
     "check_window": (
         CheckWindowAction,
         {"check_name": "", "title": ""}
+    ),
+    "kill_process": (
+        KillProcessAction,
+        {"by": "process_name", "value": "", "result_name": ""}
+    ),
+    "start_service": (
+        StartServiceAction,
+        {"service": ""}
+    ),
+    "stop_service": (
+        StopServiceAction,
+        {"service": ""}
+    ),
+    "copy_file": (
+        CopyFileAction,
+        {"src": "", "dst": "", "overwrite": True}
+    ),
+    "move_file": (
+        MoveFileAction,
+        {"src": "", "dst": "", "overwrite": True}
+    ),
+    "delete_file": (
+        DeleteFileAction,
+        {"path": "", "ignore_missing": True}
+    ),
+    "find_files": (
+        FindFilesAction,
+        {"result_name": "", "folder": "", "pattern": "*", "recursive": False}
+    ),
+    "set_file_attr": (
+        SetFileAttrAction,
+        {"path": "", "attribute": "readonly", "enable": True}
+    ),
+    "check_file": (
+        CheckFileAction,
+        {"check_name": "", "path": ""}
     ),
 }

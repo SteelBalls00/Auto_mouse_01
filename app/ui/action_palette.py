@@ -38,6 +38,13 @@ ACTION_GROUPS = [
     ("Проверки (условия)", [
         "check_image", "check_process", "check_window"
     ]),
+    ("Процессы и службы", [
+        "kill_process", "start_service", "stop_service"
+    ]),
+    ("Файлы", [
+        "copy_file", "move_file", "delete_file",
+        "find_files", "set_file_attr", "check_file"
+    ]),
 ]
 
 
