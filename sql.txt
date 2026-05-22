@@ -38,3 +38,17 @@ WHERE IN_PROGRESS = 0
   );
 
 COMMIT;
+
+
+взять задачу у которой точно нет бота:
+UPDATE TASK SET
+    IN_PROGRESS = 1,
+    TAKEN_AT    = CURRENT_TIMESTAMP,
+    BOT_ID      = 1
+WHERE IN_PROGRESS = 0
+  AND BOT_ID IS NULL                     -- ← вот это
+  AND CASE_NUMBER = (
+      SELECT FIRST 1 CASE_NUMBER FROM TASK
+      WHERE IN_PROGRESS = 0 AND BOT_ID IS NULL
+      ORDER BY CREATED_AT ASC
+  );

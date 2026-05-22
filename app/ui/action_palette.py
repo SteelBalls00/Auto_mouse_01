@@ -24,13 +24,19 @@ ACTION_GROUPS = [
     ]),
     ("Управление потоком", [
         "if_start", "else", "end_if",
-        "for_each_start", "end_for", "break", "continue"
+        "for_each_start", "end_for",
+        "while_start", "end_while",
+        "break", "continue",
+        "run_scenario",
     ]),
     ("Базы данных", [
         "sql", "sql_many"
     ]),
     ("Специальные", [
         "uni_stat_2003"
+    ]),
+    ("Проверки (условия)", [
+        "check_image", "check_process", "check_window"
     ]),
 ]
 

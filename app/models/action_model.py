@@ -1,3 +1,5 @@
+import os
+
 from app.actions.registry import ACTION_REGISTRY
 
 
@@ -23,7 +25,23 @@ class ActionModel:
             source    = self.params.get("source", "")    or "?"
             return f"ЦИКЛ {loop_name} по {source}"
 
-        if self.action_type in ("else", "end_if", "end_for", "break", "continue"):
+        if self.action_type == "run_scenario":
+            path = self.params.get("scenario_path", "") or "?"
+            short = os.path.basename(os.path.dirname(path)) if path else "?"
+            return f"Запустить сценарий: {short}"
+
+        if self.action_type == "while_start":
+            left = self.params.get("left", "") or "?"
+            op = self.params.get("operator", "")
+            right = self.params.get("right", "") or ""
+            if op in ("пусто", "не пусто"):
+                return f"ПОКА {left} {op}"
+            return f"ПОКА {left} {op} {right}"
+
+        if self.action_type in (
+                "else", "end_if", "end_for", "end_while",
+                "break", "continue"
+        ):
             return cls.name
 
         hint = ""

@@ -185,7 +185,7 @@ class MainWindow(QMainWindow):
         for i, model in enumerate(self.actions):
             t = model.action_type
             # уменьшаем уровень ДО рендера на end_if и else
-            if t in ("end_if", "end_for"):
+            if t in ("end_if", "end_for", "end_while"):
                 level = max(0, level - 1)
             indent  = "    " * level
             else_outdent = "  " if t == "else" else ""
@@ -209,12 +209,16 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor("#e9d5ff"))
             elif t == "end_for":
                 item.setBackground(QColor("#ddd6fe"))
+            elif t == "while_start":
+                item.setBackground(QColor("#fef3c7"))
+            elif t == "end_while":
+                item.setBackground(QColor("#fde68a"))
             elif t in ("break", "continue"):
                 item.setBackground(QColor("#fecaca"))
 
             self.list.addItem(item)
 
-            if t in ("if_start", "for_each_start"):
+            if t in ("if_start", "for_each_start", "while_start"):
                 level += 1
         self.list.blockSignals(False)
 
@@ -231,6 +235,8 @@ class MainWindow(QMainWindow):
         if action_type == "for_each_start": return QColor("#e9d5ff")
         if action_type == "end_for":        return QColor("#ddd6fe")
         if action_type in ("break", "continue"): return QColor("#fecaca")
+        if action_type == "while_start":    return QColor("#fef3c7")
+        if action_type == "end_while":      return QColor("#fde68a")
         return QColor("white")
 
     def _highlight_step(self, index):
@@ -289,6 +295,9 @@ class MainWindow(QMainWindow):
             self.actions.insert(insert_at + 1, end_model)
         elif action_type == "for_each_start":
             end_model = ActionModel("end_for", ACTION_REGISTRY["end_for"][1].copy())
+            self.actions.insert(insert_at + 1, end_model)
+        elif action_type == "while_start":
+            end_model = ActionModel("end_while", ACTION_REGISTRY["end_while"][1].copy())
             self.actions.insert(insert_at + 1, end_model)
 
         self._refresh_list()

@@ -18,6 +18,9 @@ from app.actions.window import (
     WindowClickXYAction, WindowClickElementAction
 )
 from app.actions.python_eval import PythonEvalAction
+from app.actions.run_scenario import RunScenarioAction
+from app.actions.while_loop import WhileStartAction, EndWhileAction
+from app.actions.checks import CheckImageAction, CheckProcessAction, CheckWindowAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -158,5 +161,29 @@ ACTION_REGISTRY = {
             "code":    "",
             "outputs": "",
         }
+    ),
+    "run_scenario": (
+        RunScenarioAction,
+        {"scenario_path": "", "stop_on_error": True}
+    ),
+    "while_start": (
+        WhileStartAction,
+        {"left": "", "operator": "не пусто", "right": "", "max_iter": 10000}
+    ),
+    "end_while": (
+        EndWhileAction,
+        {}
+    ),
+    "check_image": (
+        CheckImageAction,
+        {"check_name": "", "image": "", "confidence": 0.8}
+    ),
+    "check_process": (
+        CheckProcessAction,
+        {"check_name": "", "process_name": ""}
+    ),
+    "check_window": (
+        CheckWindowAction,
+        {"check_name": "", "title": ""}
     ),
 }

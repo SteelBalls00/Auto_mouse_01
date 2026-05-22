@@ -93,6 +93,14 @@ class ScenarioRunner(QThread):
         loop_stack = []
         i = self._start_from
         while i < len(self.actions):
+            # Пауза от бота (если задана) — ждём пока снимут
+            pause_event = self.context.get("pause_event")
+            if pause_event is not None:
+                while not pause_event.is_set():
+                    if self._stop_event.is_set():
+                        break
+                    pause_event.wait(0.2)
+
             if self._stop_event.is_set():
                 self._log("⏹ Остановлено пользователем", "warning")
                 self.finished_error.emit("Остановлено")
@@ -103,7 +111,8 @@ class ScenarioRunner(QThread):
 
             if not model.enabled and t not in (
                     "if_start", "else", "end_if",
-                    "for_each_start", "end_for"
+                    "for_each_start", "end_for",
+                    "while_start", "end_while"
             ):
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}] ⊘ Пропущено (отключено)")
@@ -199,6 +208,7 @@ class ScenarioRunner(QThread):
                     loop_stack.pop()
                     i += 1
 
+
             elif t == "break":
                 if not loop_stack:
                     self._log(f"✖ ПРЕРВАТЬ вне цикла на шаге {i + 1}", "error")
@@ -206,7 +216,8 @@ class ScenarioRunner(QThread):
                     return
                 top = loop_stack.pop()
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}] ПРЕРВАТЬ '{top['name']}'")
+                name_or_type = top.get("name") or top.get("type", "цикл")
+                self._log(f"[{i + 1}] ПРЕРВАТЬ '{name_or_type}'")
                 i = top["end"] + 1
 
             elif t == "continue":
@@ -218,6 +229,60 @@ class ScenarioRunner(QThread):
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}] СЛЕДУЮЩАЯ ИТЕРАЦИЯ")
                 i = top["end"]
+
+            elif t == "while_start":
+                action = ACTION_REGISTRY[t][0](model.params)
+                try:
+                    cond = action.evaluate(self.context)
+                except Exception as e:
+                    self._log(f"✖ Ошибка условия ПОКА на шаге {i + 1}: {e}", "error")
+                    self.finished_error.emit(str(e))
+                    return
+
+                # Управляем счётчиком итераций для защиты от вечного цикла
+                w_state = next(
+                    (s for s in loop_stack if s.get("type") == "while" and s.get("start") == i),
+                    None
+                )
+                if w_state is None:
+                    # первая итерация
+                    max_iter = int(model.params.get("max_iter", 10000) or 10000)
+                    w_state = {"type": "while", "start": i, "end": pairs[i]["end"],
+                               "iter": 0, "max_iter": max_iter}
+                    loop_stack.append(w_state)
+
+                self.step_started.emit(i)
+                if not cond:
+                    self._log(f"[{i + 1}] ПОКА → False, выход")
+                    # снимаем со стека и прыгаем за end_while
+                    end_idx = w_state["end"]
+                    loop_stack.remove(w_state)
+                    i = end_idx + 1
+                    continue
+
+                w_state["iter"] += 1
+                if w_state["iter"] > w_state["max_iter"]:
+                    msg = f"ЦИКЛ ПОКА превысил лимит {w_state['max_iter']} итераций"
+                    self._log(f"✖ {msg}", "error")
+                    self.finished_error.emit(msg)
+                    return
+
+                self._log(f"[{i + 1}] ПОКА → True (итерация {w_state['iter']})")
+                i += 1
+
+            elif t == "end_while":
+                # Прыгаем обратно к while_start — он перепроверит условие
+                w_state = next(
+                    (s for s in reversed(loop_stack) if s.get("type") == "while"),
+                    None
+                )
+                if w_state is None:
+                    self._log(f"✖ КОНЕЦ ЦИКЛА ПОКА без открытого while на шаге {i + 1}", "error")
+                    self.finished_error.emit("Структурная ошибка")
+                    return
+                self.step_started.emit(i)
+                self._log(f"[{i + 1}] ← возврат к ПОКА")
+                i = w_state["start"]
 
             else:
                 action = ACTION_REGISTRY[t][0](model.params)
@@ -267,7 +332,7 @@ class ScenarioRunner(QThread):
             self.finished_error.emit(str(exc))
 
     def _build_pairs(self):
-        """Сопоставляет IF↔ELSE↔END_IF и FOR↔END_FOR. Любая вложенность."""
+        """Сопоставляет IF↔ELSE↔END_IF, FOR↔END_FOR, WHILE↔END_WHILE."""
         pairs = {}
         stack = []
         for i, model in enumerate(self.actions):
@@ -278,6 +343,9 @@ class ScenarioRunner(QThread):
             elif t == "for_each_start":
                 stack.append((i, "for"))
                 pairs[i] = {"type": "for", "end": None}
+            elif t == "while_start":
+                stack.append((i, "while"))
+                pairs[i] = {"type": "while", "end": None}
             elif t == "else":
                 if not stack or stack[-1][1] != "if":
                     raise RuntimeError(f"ИНАЧЕ без ЕСЛИ на шаге {i + 1}")
@@ -290,8 +358,12 @@ class ScenarioRunner(QThread):
                 if not stack or stack[-1][1] != "for":
                     raise RuntimeError(f"КОНЕЦ ЦИКЛА без ЦИКЛА на шаге {i + 1}")
                 pairs[stack.pop()[0]]["end"] = i
+            elif t == "end_while":
+                if not stack or stack[-1][1] != "while":
+                    raise RuntimeError(f"КОНЕЦ ЦИКЛА ПОКА без ЦИКЛА ПОКА на шаге {i + 1}")
+                pairs[stack.pop()[0]]["end"] = i
         if stack:
             idx, kind = stack[-1]
-            kind_name = "ЕСЛИ" if kind == "if" else "ЦИКЛ"
-            raise RuntimeError(f"Незакрытый {kind_name} на шаге {idx + 1}")
+            names = {"if": "ЕСЛИ", "for": "ЦИКЛ", "while": "ЦИКЛ ПОКА"}
+            raise RuntimeError(f"Незакрытый {names.get(kind, kind)} на шаге {idx + 1}")
         return pairs
