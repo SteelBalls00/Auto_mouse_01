@@ -11,7 +11,7 @@ MIME_ACTION_TYPE = "application/x-rpa-action-type"
 # Какое действие в какую группу попадает
 ACTION_GROUPS = [
     ("Основное", [
-        "wait", "type_text", "press_key", "run_program", "cmd", "python_eval"
+        "wait", "type_text", "press_key", "run_program", "cmd", "python_eval", "ask_yesno"
     ]),
     ("Мышь и координаты", [
         "click_xy"
@@ -44,6 +44,9 @@ ACTION_GROUPS = [
     ("Файлы", [
         "copy_file", "move_file", "delete_file",
         "find_files", "set_file_attr", "check_file"
+    ]),
+    ("Архивы", [
+        "add_to_archive", "extract_archive"
     ]),
 ]
 

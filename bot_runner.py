@@ -21,7 +21,7 @@ from PyQt5.QtGui import QIcon, QColor
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QSystemTrayIcon, QMenu, QFileDialog,
-    QDialog, QLineEdit, QCheckBox, QSpinBox, QFormLayout, QDialogButtonBox
+    QDialog, QLineEdit, QCheckBox, QSpinBox, QFormLayout, QDialogButtonBox, QComboBox
 )
 
 # ── Путь к проекту ───────────────────────────────────────────────────
@@ -126,6 +126,35 @@ class BotController(QObject):
         self.current_op.emit("")
         self.line.emit("Бот остановлен", "info")
 
+    def run_scenario_file(self, path):
+        """Запустить конкретный сценарий по горячей клавише (разовый прогон)."""
+        if self._running:
+            self.line.emit("⚠ Бот занят, хоткей проигнорирован", "err")
+            return
+        if not os.path.exists(path):
+            self.line.emit(f"Сценарий не найден: {path}", "err")
+            return
+
+        self._stop_flag.clear()
+        self._pause_event.set()
+        self._running = True
+        self.state_changed.emit("running")
+
+        def _thread():
+            try:
+                name, actions = load_scenario(path)
+                self.line.emit(f"⌨ Хоткей → {name}", "info")
+                self._run_one(actions, name)
+            except Exception as e:
+                self.line.emit(f"Ошибка: {e}", "err")
+            finally:
+                self._running = False
+                self.state_changed.emit("idle")
+                self.current_op.emit("")
+
+        self._loop_thread = threading.Thread(target=_thread, daemon=True)
+        self._loop_thread.start()
+
     def _run_one(self, actions, name):
         """Прогоняет один сценарий синхронно в текущем потоке."""
         self._runner = ScenarioRunner(
@@ -164,27 +193,159 @@ class BotController(QObject):
 # ════════════════════════════════════════════════════════════════════
 #  Диалог настроек
 # ════════════════════════════════════════════════════════════════════
+import json as _json
+
+# Список клавиш для комбобокса горячих клавиш
+HOTKEY_KEYS = [
+    "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12",
+    "F13","F14","F15","F16","F17","F18","F19","F20","F21","F22","F23","F24",
+    "A","B","C","D","E","F","G","H","I","J","K","L","M",
+    "N","O","P","Q","R","S","T","U","V","W","X","Y","Z",
+    "0","1","2","3","4","5","6","7","8","9",
+    "Insert","Delete","Home","End","PageUp","PageDown",
+    "Up","Down","Left","Right","Space","Enter","Esc","Tab",
+    "NumPad0","NumPad1","NumPad2","NumPad3","NumPad4",
+    "NumPad5","NumPad6","NumPad7","NumPad8","NumPad9",
+]
+
+
+def hotkey_to_keyboard_str(item):
+    """Преобразует объект хоткея в строку для библиотеки keyboard: 'shift+alt+f13'."""
+    parts = []
+    if item.get("ctrl"):  parts.append("ctrl")
+    if item.get("alt"):   parts.append("alt")
+    if item.get("shift"): parts.append("shift")
+    if item.get("win"):   parts.append("windows")
+    key = (item.get("key") or "").strip().lower()
+    if key:
+        parts.append(key)
+    return "+".join(parts)
+
+
+def hotkey_to_label(item):
+    """Человекочитаемая строка: 'Shift + Alt + F13'."""
+    parts = []
+    if item.get("ctrl"):  parts.append("Ctrl")
+    if item.get("alt"):   parts.append("Alt")
+    if item.get("shift"): parts.append("Shift")
+    if item.get("win"):   parts.append("Win")
+    if item.get("key"):   parts.append(item["key"])
+    return " + ".join(parts) if parts else "—"
+
+
+class HotkeyRowWidget(QWidget):
+    """Одна строка во вкладке хоткеев: вкл + путь + модификаторы + клавиша + удалить."""
+    changed = pyqtSignal()
+    removed = pyqtSignal(object)
+
+    def __init__(self, item=None):
+        super().__init__()
+        item = item or {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        # Верхняя строка: чекбокс вкл + путь + обзор + удалить
+        top = QHBoxLayout()
+        self.enabled = QCheckBox()
+        self.enabled.setChecked(item.get("enabled", True))
+        self.enabled.setToolTip("Включить / отключить горячую клавишу")
+        self.enabled.stateChanged.connect(lambda: self.changed.emit())
+        top.addWidget(self.enabled)
+
+        self.path = QLineEdit(item.get("path", ""))
+        self.path.setPlaceholderText("Путь к scenario.json")
+        self.path.textChanged.connect(lambda: self.changed.emit())
+        top.addWidget(self.path, 1)
+
+        browse = QPushButton("…")
+        browse.setFixedWidth(30)
+        browse.clicked.connect(self._browse)
+        top.addWidget(browse)
+
+        rm = QPushButton("✕")
+        rm.setFixedWidth(30)
+        rm.setStyleSheet("color:#dc2626;")
+        rm.clicked.connect(lambda: self.removed.emit(self))
+        top.addWidget(rm)
+        layout.addLayout(top)
+
+        # Нижняя строка: модификаторы + клавиша
+        bot = QHBoxLayout()
+        self.cb_shift = QCheckBox("Shift")
+        self.cb_ctrl  = QCheckBox("Ctrl")
+        self.cb_alt   = QCheckBox("Alt")
+        self.cb_win   = QCheckBox("Win")
+        self.cb_shift.setChecked(item.get("shift", False))
+        self.cb_ctrl.setChecked(item.get("ctrl", False))
+        self.cb_alt.setChecked(item.get("alt", False))
+        self.cb_win.setChecked(item.get("win", False))
+        for cb in (self.cb_shift, self.cb_ctrl, self.cb_alt, self.cb_win):
+            cb.stateChanged.connect(lambda: self.changed.emit())
+            bot.addWidget(cb)
+
+        self.key = QComboBox()
+        self.key.addItems(HOTKEY_KEYS)
+        cur = item.get("key", "F13")
+        idx = self.key.findText(cur)
+        if idx >= 0:
+            self.key.setCurrentIndex(idx)
+        self.key.currentTextChanged.connect(lambda: self.changed.emit())
+        bot.addWidget(QLabel("Клавиша:"))
+        bot.addWidget(self.key, 1)
+        layout.addLayout(bot)
+
+        # Разделитель
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background:#e5e7eb;")
+        layout.addWidget(line)
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Выбрать сценарий", "", "Сценарий (*.json)"
+        )
+        if path:
+            self.path.setText(path)
+
+    def to_item(self):
+        return {
+            "path":    self.path.text().strip(),
+            "shift":   self.cb_shift.isChecked(),
+            "ctrl":    self.cb_ctrl.isChecked(),
+            "alt":     self.cb_alt.isChecked(),
+            "win":     self.cb_win.isChecked(),
+            "key":     self.key.currentText(),
+            "enabled": self.enabled.isChecked(),
+        }
+
+
 class SettingsDialog(QDialog):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("Настройки бота")
-        self.setMinimumWidth(420)
+        self.resize(640, 520)
 
-        form = QFormLayout()
+        from PyQt5.QtWidgets import QTabWidget, QScrollArea
+        tabs = QTabWidget()
+
+        # ── Вкладка 1: Общие ──────────────────────────────────────────
+        general = QWidget()
+        form = QFormLayout(general)
 
         self.path_edit = QLineEdit(config.get("bot", "scenario_path", fallback=""))
         browse = QPushButton("Обзор…")
-        browse.clicked.connect(self._browse)
+        browse.clicked.connect(self._browse_main)
         path_row = QHBoxLayout()
         path_row.addWidget(self.path_edit, 1)
         path_row.addWidget(browse)
-        form.addRow("Сценарий:", path_row)
+        form.addRow("Основной сценарий:", path_row)
 
         self.name_edit = QLineEdit(config.get("bot", "bot_name", fallback="Бот"))
         form.addRow("Имя бота:", self.name_edit)
 
-        self.loop_chk = QCheckBox("Зацикливать выполнение")
+        self.loop_chk = QCheckBox("Зацикливать выполнение основного сценария")
         self.loop_chk.setChecked(config.getint("bot", "loop", fallback=1) == 1)
         form.addRow("", self.loop_chk)
 
@@ -194,20 +355,86 @@ class SettingsDialog(QDialog):
         self.delay_spin.setSuffix(" сек")
         form.addRow("Пауза между прогонами:", self.delay_spin)
 
+        tabs.addTab(general, "Общие")
+
+        # ── Вкладка 2: Горячие клавиши ────────────────────────────────
+        hk_tab = QWidget()
+        hk_layout = QVBoxLayout(hk_tab)
+
+        info = QLabel(
+            "Назначьте горячие клавиши для запуска сценариев. "
+            "Работают глобально, даже когда бот свёрнут."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#64748b; font-size:11px;")
+        hk_layout.addWidget(info)
+
+        self.rows_container = QWidget()
+        self.rows_layout = QVBoxLayout(self.rows_container)
+        self.rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.rows_layout.setSpacing(0)
+        self.rows_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.rows_container)
+        hk_layout.addWidget(scroll, 1)
+
+        add_btn = QPushButton("➕ Добавить горячую клавишу")
+        add_btn.clicked.connect(lambda: self._add_row())
+        hk_layout.addWidget(add_btn)
+
+        tabs.addTab(hk_tab, "Горячие клавиши")
+
+        # Загружаем существующие хоткеи
+        self.rows = []
+        for item in self._load_hotkeys():
+            self._add_row(item)
+
+        # ── Кнопки ────────────────────────────────────────────────────
         box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         box.accepted.connect(self.accept)
         box.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.addWidget(tabs, 1)
         layout.addWidget(box)
 
-    def _browse(self):
+        # Центрируем относительно экрана
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(
+            screen.center().x() - self.width() // 2,
+            screen.center().y() - self.height() // 2,
+        )
+
+    def _browse_main(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Выбрать сценарий", "", "Сценарий (*.json)"
         )
         if path:
             self.path_edit.setText(path)
+
+    def _add_row(self, item=None):
+        row = HotkeyRowWidget(item)
+        row.removed.connect(self._remove_row)
+        # вставляем перед растяжкой (последний элемент)
+        self.rows_layout.insertWidget(self.rows_layout.count() - 1, row)
+        self.rows.append(row)
+
+    def _remove_row(self, row):
+        if row in self.rows:
+            self.rows.remove(row)
+        row.setParent(None)
+        row.deleteLater()
+
+    def _load_hotkeys(self):
+        if not self.config.has_section("hotkeys"):
+            return []
+        raw = self.config.get("hotkeys", "items", fallback="[]")
+        try:
+            return _json.loads(raw)
+        except Exception:
+            return []
 
     def save_to_config(self):
         if not self.config.has_section("bot"):
@@ -216,8 +443,76 @@ class SettingsDialog(QDialog):
         self.config.set("bot", "bot_name", self.name_edit.text().strip())
         self.config.set("bot", "loop", "1" if self.loop_chk.isChecked() else "0")
         self.config.set("bot", "loop_delay", str(self.delay_spin.value()))
+
+        if not self.config.has_section("hotkeys"):
+            self.config.add_section("hotkeys")
+        items = [r.to_item() for r in self.rows if r.path.text().strip()]
+        self.config.set("hotkeys", "items", _json.dumps(items, ensure_ascii=False))
+
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             self.config.write(f)
+
+
+class HotkeyManager:
+    """
+    Регистрирует глобальные горячие клавиши через библиотеку keyboard.
+    При нажатии запускает соответствующий сценарий через переданный колбэк.
+    """
+    def __init__(self, run_callback):
+        self._run_callback = run_callback
+        self._registered = []
+        self._kb = None
+        try:
+            import keyboard
+            self._kb = keyboard
+        except ImportError:
+            self._kb = None
+
+    def available(self):
+        return self._kb is not None
+
+    def reload(self, config):
+        """Перечитать хоткеи из конфига и перерегистрировать."""
+        if not self._kb:
+            return
+        self.clear()
+
+        if not config.has_section("hotkeys"):
+            return
+        import json
+        try:
+            items = json.loads(config.get("hotkeys", "items", fallback="[]"))
+        except Exception:
+            items = []
+
+        for item in items:
+            if not item.get("enabled", True):
+                continue
+            path = (item.get("path") or "").strip()
+            if not path:
+                continue
+            combo = hotkey_to_keyboard_str(item)
+            if not combo:
+                continue
+            try:
+                # default args фиксируют значения в замыкании
+                handle = self._kb.add_hotkey(
+                    combo,
+                    lambda p=path: self._run_callback(p)
+                )
+                self._registered.append(handle)
+            except Exception:
+                pass
+
+    def clear(self):
+        if not self._kb:
+            return
+        for h in self._registered:
+            try:
+                self._kb.remove_hotkey(h)
+            except Exception:
+                pass
+        self._registered = []
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -238,6 +533,14 @@ class BotWindow(QWidget):
 
         self._build_ui()
         self._wire()
+
+        # Глобальные горячие клавиши
+        self.hotkeys = HotkeyManager(self._run_by_hotkey)
+        if self.hotkeys.available():
+            self.hotkeys.reload(self.config)
+        else:
+            self._add_line("⚠ Модуль 'keyboard' не установлен — хоткеи выключены", "err")
+
         self._position_above_tray()
 
     # ── UI ────────────────────────────────────────────────────────────
@@ -370,7 +673,10 @@ class BotWindow(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             dlg.save_to_config()
             self.title.setText(self.config.get("bot", "bot_name", fallback="Бот"))
-            self._add_line("Настройки сохранены", "info")
+            # Перерегистрируем хоткеи
+            if hasattr(self, "hotkeys") and self.hotkeys.available():
+                self.hotkeys.reload(self.config)
+            self._add_line("Настройки сохранены, хоткеи обновлены", "info")
 
     # ── Позиция над треем ──────────────────────────────────────────────
     def _position_above_tray(self):
@@ -393,6 +699,9 @@ class BotWindow(QWidget):
     def mouseReleaseEvent(self, e):
         self._drag_pos = None
 
+    def _run_by_hotkey(self, path):
+        # keyboard вызывает из своего потока — пробрасываем в контроллер
+        self.ctrl.run_scenario_file(path)
 
 # ════════════════════════════════════════════════════════════════════
 #  Точка входа + трей
@@ -442,6 +751,8 @@ def main():
 
     def _quit():
         win.ctrl.stop()
+        if hasattr(win, "hotkeys"):
+            win.hotkeys.clear()
         tray.hide()
         app.quit()
     act_quit.triggered.connect(_quit)

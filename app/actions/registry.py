@@ -28,6 +28,8 @@ from app.actions.files import (
     CopyFileAction, MoveFileAction, DeleteFileAction,
     FindFilesAction, SetFileAttrAction, CheckFileAction
 )
+from app.actions.dialog import AskYesNoAction
+from app.actions.archive import AddToArchiveAction, ExtractArchiveAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -228,5 +230,17 @@ ACTION_REGISTRY = {
     "check_file": (
         CheckFileAction,
         {"check_name": "", "path": ""}
+    ),
+    "ask_yesno": (
+        AskYesNoAction,
+        {"result_name": "", "title": "Вопрос", "text": ""}
+    ),
+    "add_to_archive": (
+        AddToArchiveAction,
+        {"archive": "", "items": "", "mode": "добавить"}
+    ),
+    "extract_archive": (
+        ExtractArchiveAction,
+        {"archive": "", "where": "в папку архива", "target": ""}
     ),
 }
