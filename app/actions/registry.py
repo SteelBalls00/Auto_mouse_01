@@ -30,6 +30,16 @@ from app.actions.files import (
 )
 from app.actions.dialog import AskYesNoAction
 from app.actions.archive import AddToArchiveAction, ExtractArchiveAction
+from app.actions.window_control import (
+    WindowStateAction, WindowMoveAction, WindowResizeAction,
+    WindowMoveResizeAction, WindowSendMessageAction
+)
+from app.actions.screenshot import ScreenshotAction
+from app.actions.read_element import ReadElementAction
+from app.actions.ocr import OcrRegionAction
+from app.actions.wait_gone import WaitImageGoneAction, WaitWindowGoneAction
+from app.actions.basic_vars import SetVariableAction, RepeatStartAction, EndRepeatAction
+from app.actions.try_catch import TryStartAction, CatchAction, EndTryAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -242,5 +252,73 @@ ACTION_REGISTRY = {
     "extract_archive": (
         ExtractArchiveAction,
         {"archive": "", "where": "в папку архива", "target": ""}
+    ),
+    "window_state": (
+        WindowStateAction,
+        {"window_var": "", "title": "", "state": "restore"}
+    ),
+    "window_move": (
+        WindowMoveAction,
+        {"window_var": "", "title": "", "x": 0, "y": 0}
+    ),
+    "window_resize": (
+        WindowResizeAction,
+        {"window_var": "", "title": "", "width": 800, "height": 600}
+    ),
+    "window_move_resize": (
+        WindowMoveResizeAction,
+        {"window_var": "", "title": "", "x": 0, "y": 0, "width": 800, "height": 600}
+    ),
+    "window_send_message": (
+        WindowSendMessageAction,
+        {"window_var": "", "title": "", "msg": "WM_CLOSE",
+         "wparam": 0, "lparam": 0, "post": True}
+    ),
+    "screenshot": (
+        ScreenshotAction,
+        {"mode": "весь экран", "title": "", "x": 0, "y": 0,
+         "width": 0, "height": 0, "folder": "", "result_name": ""}
+    ),
+    "read_element": (
+        ReadElementAction,
+        {"window_var": "", "auto_id": "", "control_type": "",
+         "name": "", "class_name": "", "instance": "", "result_name": ""}
+    ),
+    "ocr_region": (
+        OcrRegionAction,
+        {"source": "область экрана", "x": 0, "y": 0, "width": 200, "height": 50,
+         "image": "", "lang": "rus", "result_name": ""}
+    ),
+    "wait_image_gone": (
+        WaitImageGoneAction,
+        {"image": "", "timeout": 30, "confidence": 0.8}
+    ),
+    "wait_window_gone": (
+        WaitWindowGoneAction,
+        {"title": "", "timeout": 30}
+    ),
+    "set_variable": (
+        SetVariableAction,
+        {"var_name": "", "value": ""}
+    ),
+    "repeat_start": (
+        RepeatStartAction,
+        {"loop_name": "", "times": 3}
+    ),
+    "end_repeat": (
+        EndRepeatAction,
+        {}
+    ),
+    "try_start": (
+        TryStartAction,
+        {"try_name": "try"}
+    ),
+    "catch": (
+        CatchAction,
+        {}
+    ),
+    "end_try": (
+        EndTryAction,
+        {}
     ),
 }

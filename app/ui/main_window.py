@@ -1,6 +1,6 @@
 import os
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSlot
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
@@ -17,11 +17,20 @@ from app.ui.action_editor import ActionEditor
 from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
+from app.ui.scenario_manager import ScenarioManager
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # pyautogui failsafe — увод мыши в левый верхний угол прерывает
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = True
+        except Exception:
+            pass
+
         self.setWindowTitle("Python RPA")
         self.resize(1000, 600)
 
@@ -89,15 +98,26 @@ class MainWindow(QMainWindow):
         self.log.setMaximumHeight(200)
 
         # Кнопки запуска/остановки
-        self.btn_run  = QPushButton("▶ Запустить")
+        self.btn_run = QPushButton("▶ Запустить")
+        self.btn_debug = QPushButton("🐞 По шагам")
+        self.btn_slow = QPushButton("🐢 Замедленно")
+        self.btn_next = QPushButton("⏭ Дальше")
         self.btn_stop = QPushButton("⏹ Стоп")
         self.btn_stop.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        self.btn_next.setVisible(False)
 
         self.btn_run.clicked.connect(self._run_scenario)
+        self.btn_debug.clicked.connect(self._run_debug)
+        self.btn_slow.clicked.connect(self._run_slow)
+        self.btn_next.clicked.connect(self._step_next)
         self.btn_stop.clicked.connect(self._stop_scenario)
 
         run_row = QHBoxLayout()
         run_row.addWidget(self.btn_run)
+        run_row.addWidget(self.btn_debug)
+        run_row.addWidget(self.btn_slow)
+        run_row.addWidget(self.btn_next)
         run_row.addWidget(self.btn_stop)
 
         right = QVBoxLayout()
@@ -119,14 +139,41 @@ class MainWindow(QMainWindow):
         vars_w = QWidget()
         vars_w.setLayout(vars_layout)
 
+        # Менеджер сценариев — крайняя левая панель
+        self.scenario_mgr = ScenarioManager()
+        self.scenario_mgr.openRequested.connect(self._open_scenario_path)
+
         splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.scenario_mgr)
         splitter.addWidget(palette_w)
         splitter.addWidget(left_w)
         splitter.addWidget(right_w)
         splitter.addWidget(vars_w)
-        splitter.setSizes([200, 240, 480, 200])
+        splitter.setSizes([180, 180, 240, 460, 180])
 
         self.setCentralWidget(splitter)
+        self._setup_emergency_stop()
+
+    def _setup_emergency_stop(self):
+        """Глобальная горячая клавиша аварийной остановки."""
+        self._hotkey_ok = False
+        try:
+            import keyboard
+            # Esc дважды подряд за 0.5 сек — чтобы не ловить случайные нажатия
+            keyboard.add_hotkey("ctrl+shift+q", self._emergency_stop_from_thread,
+                                trigger_on_release=False)
+            self._hotkey_ok = True
+        except ImportError:
+            pass  # keyboard не установлен — работает только кнопка Стоп
+
+    def _emergency_stop_from_thread(self):
+        # keyboard вызывает из своего потока → пробрасываем в UI-поток
+        from PyQt5.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self, "_emergency_stop", Qt.QueuedConnection)
+
+    @staticmethod
+    def _noop():
+        pass
 
     def _show_step_menu(self, row, global_pos):
         from PyQt5.QtWidgets import QMenu
@@ -185,7 +232,7 @@ class MainWindow(QMainWindow):
         for i, model in enumerate(self.actions):
             t = model.action_type
             # уменьшаем уровень ДО рендера на end_if и else
-            if t in ("end_if", "end_for", "end_while"):
+            if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try"):
                 level = max(0, level - 1)
             indent  = "    " * level
             else_outdent = "  " if t == "else" else ""
@@ -215,10 +262,18 @@ class MainWindow(QMainWindow):
                 item.setBackground(QColor("#fde68a"))
             elif t in ("break", "continue"):
                 item.setBackground(QColor("#fecaca"))
+            elif t in ("repeat_start", "end_repeat"):
+                item.setBackground(QColor("#e9d5ff"))
+            elif t == "try_start":
+                item.setBackground(QColor("#fce7f3"))  # розовый
+            elif t == "catch":
+                item.setBackground(QColor("#fbcfe8"))
+            elif t == "end_try":
+                item.setBackground(QColor("#f9a8d4"))
 
             self.list.addItem(item)
 
-            if t in ("if_start", "for_each_start", "while_start"):
+            if t in ("if_start", "for_each_start", "while_start", "repeat_start", "try_start"):
                 level += 1
         self.list.blockSignals(False)
 
@@ -237,6 +292,9 @@ class MainWindow(QMainWindow):
         if action_type in ("break", "continue"): return QColor("#fecaca")
         if action_type == "while_start":    return QColor("#fef3c7")
         if action_type == "end_while":      return QColor("#fde68a")
+        if action_type == "try_start": return QColor("#fce7f3")
+        if action_type == "catch":     return QColor("#fbcfe8")
+        if action_type == "end_try":   return QColor("#f9a8d4")
         return QColor("white")
 
     def _highlight_step(self, index):
@@ -260,11 +318,14 @@ class MainWindow(QMainWindow):
             self.list.item(self.current_index).setText(
                 f"{self.current_index + 1}. {self.actions[self.current_index].title()}"
             )
-            # Если предыдущий шаг был SQL — обновить дерево
             self.vars_tree.rebuild(self.actions)
 
         if 0 <= row < len(self.actions):
-            self.editor.load_action(self.actions[row])
+            from app.models.action_model import collect_available_vars
+            known = collect_available_vars(self.actions, row)
+
+            self.editor.load_action(self.actions[row])  # создаём поля
+            self.editor.set_known_vars(known)  # потом красим
             self.current_index = row
         else:
             self.editor.load_action(None)
@@ -299,6 +360,14 @@ class MainWindow(QMainWindow):
         elif action_type == "while_start":
             end_model = ActionModel("end_while", ACTION_REGISTRY["end_while"][1].copy())
             self.actions.insert(insert_at + 1, end_model)
+        elif action_type == "repeat_start":
+            end_model = ActionModel("end_repeat", ACTION_REGISTRY["end_repeat"][1].copy())
+            self.actions.insert(insert_at + 1, end_model)
+        elif action_type == "try_start":
+            catch_model = ActionModel("catch", ACTION_REGISTRY["catch"][1].copy())
+            end_model = ActionModel("end_try", ACTION_REGISTRY["end_try"][1].copy())
+            self.actions.insert(insert_at + 1, catch_model)
+            self.actions.insert(insert_at + 2, end_model)
 
         self._refresh_list()
         self.list.setCurrentRow(insert_at)
@@ -373,6 +442,7 @@ class MainWindow(QMainWindow):
 
         self._scenario_path = scenario_path
         self._update_title(name)
+        self.scenario_mgr.note_opened(scenario_path)
         self.log.append(f"💾 Сохранено: {scenario_path}")
 
     def _save_scenario_as(self):
@@ -407,19 +477,29 @@ class MainWindow(QMainWindow):
 
         self._scenario_path = scenario_path
         self._update_title(name)
+        self.scenario_mgr.note_opened(scenario_path)
         self.log.append(f"💾 Сохранено: {scenario_path}")
 
     def _load_scenario(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Открыть сценарий", "", "Сценарий (*.json)"
         )
-        if not path:
-            return
+        if path:
+            self._open_scenario_path(path)
 
+    def _open_scenario_path(self, path):
+        """Открыть сценарий по конкретному пути (из диалога или менеджера)."""
         try:
             name, actions = load_scenario(path)
         except Exception as e:
             QMessageBox.critical(self, "Ошибка загрузки", str(e))
+            # битый/удалённый — убираем из недавних
+            try:
+                from app.scenario import recent
+                recent.remove_recent(path)
+                self.scenario_mgr.refresh()
+            except Exception:
+                pass
             return
 
         self.actions        = actions
@@ -429,6 +509,9 @@ class MainWindow(QMainWindow):
         self._update_title(name or os.path.splitext(os.path.basename(path))[0])
         self.log.append(f"📂 Загружен: {name}  ({path})")
 
+        # Запоминаем в недавних
+        self.scenario_mgr.note_opened(path)
+
         if self.actions:
             self.list.setCurrentRow(0)
 
@@ -437,6 +520,15 @@ class MainWindow(QMainWindow):
 
     # ── Запуск / остановка ───────────────────────────────────────────
     def _run_scenario(self, start_from=0):
+        self._launch(start_from=start_from)
+
+    def _run_debug(self):
+        self._launch(step_mode=True)
+
+    def _run_slow(self):
+        self._launch(step_delay=1.0)   # 1 сек между шагами
+
+    def _launch(self, start_from=0, step_mode=False, step_delay=0.0):
         if not self.actions:
             QMessageBox.information(self, "Нет шагов", "Добавьте хотя бы один шаг.")
             return
@@ -446,18 +538,40 @@ class MainWindow(QMainWindow):
         self._clear_highlight()
 
         self.btn_run.setEnabled(False)
+        self.btn_debug.setEnabled(False)
+        self.btn_slow.setEnabled(False)
         self.btn_stop.setEnabled(True)
+
+        # Кнопка «Дальше» только в пошаговом режиме
+        self.btn_next.setVisible(step_mode)
+        self.btn_next.setEnabled(False)
 
         self._runner = ScenarioRunner(
             self.actions, self,
             start_from=start_from,
             scenario_name=self._current_scenario_name(),
+            step_mode=step_mode,
+            step_delay=step_delay,
         )
         self._runner.log_line.connect(self.log.append)
         self._runner.step_started.connect(self._highlight_step)
+        self._runner.awaiting_step.connect(self._on_awaiting_step)
         self._runner.finished_ok.connect(self._on_runner_done)
         self._runner.finished_error.connect(self._on_runner_error)
         self._runner.start()
+
+    def _on_awaiting_step(self, idx):
+        """Пошаговый режим: runner ждёт разрешения на шаг idx."""
+        self._highlight_step(idx)
+        self.btn_next.setEnabled(True)
+        if 0 <= idx < len(self.actions):
+            title = self.actions[idx].title()
+            self.log.append(f"⏸ Готов выполнить шаг {idx + 1}: {title}  — нажмите «Дальше»")
+
+    def _step_next(self):
+        self.btn_next.setEnabled(False)
+        if self._runner and self._runner.isRunning():
+            self._runner.allow_next_step()
 
     def _current_scenario_name(self):
         """Имя текущего сценария — из пути к scenario.json или 'unsaved'."""
@@ -471,20 +585,38 @@ class MainWindow(QMainWindow):
             self._runner.stop()
             self.log.append("⏹ Запрос на остановку отправлен…")
 
+    def _reset_run_buttons(self):
+        self.btn_run.setEnabled(True)
+        self.btn_debug.setEnabled(True)
+        self.btn_slow.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        self.btn_next.setVisible(False)
+
     def _on_runner_done(self):
         self._clear_highlight()
-        self.btn_run.setEnabled(True)
-        self.btn_stop.setEnabled(False)
+        self._reset_run_buttons()
 
     def _on_runner_error(self, msg):
         self._clear_highlight()
-        self.btn_run.setEnabled(True)
-        self.btn_stop.setEnabled(False)
+        self._reset_run_buttons()
         if msg != "Остановлено":
             QMessageBox.critical(self, "Ошибка выполнения", msg)
 
     def closeEvent(self, event):
+        if getattr(self, "_hotkey_ok", False):
+            try:
+                import keyboard
+                keyboard.remove_hotkey("ctrl+shift+q")
+            except Exception:
+                pass
         if self._runner and self._runner.isRunning():
             self._runner.stop()
             self._runner.wait(2000)
         event.accept()
+
+    @pyqtSlot()
+    def _emergency_stop(self):
+        if self._runner and self._runner.isRunning():
+            self._runner.stop()
+            self.log.append("🛑 АВАРИЙНАЯ ОСТАНОВКА (Ctrl+Shift+Q)")

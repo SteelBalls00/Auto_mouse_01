@@ -20,6 +20,9 @@ class ActionModel:
                 return f"ЕСЛИ {left} {op}"
             return f"ЕСЛИ {left} {op} {right}"
 
+        if self.action_type == "try_start":
+            return f"ПОПРОБОВАТЬ ({self.params.get('try_name', 'try')})"
+
         if self.action_type == "for_each_start":
             loop_name = self.params.get("loop_name", "") or "?"
             source    = self.params.get("source", "")    or "?"
@@ -38,9 +41,12 @@ class ActionModel:
                 return f"ПОКА {left} {op}"
             return f"ПОКА {left} {op} {right}"
 
+        if self.action_type == "repeat_start":
+            return f"ПОВТОРИТЬ {self.params.get('times', '?')} раз"
+
         if self.action_type in (
                 "else", "end_if", "end_for", "end_while",
-                "break", "continue"
+                "break", "continue", "end_repeat", "catch", "end_try",
         ):
             return cls.name
 
@@ -65,3 +71,40 @@ class ActionModel:
             data.get("params", {}),
             data.get("enabled", True),
         )
+
+
+def collect_available_vars(actions, before_index):
+    """
+    Собирает все имена переменных (drag-строки вида '{ns.field}'),
+    которые экспортируют шаги ДО before_index.
+    Возвращает set строк без скобок: {'cases.current.ID', 'task.FIO', ...}
+    """
+    from app.actions.registry import ACTION_REGISTRY
+
+    names = set()
+
+    def walk(node):
+        drag = node.get("drag")
+        if drag:
+            # '{cases.ID}' → 'cases.ID'
+            inner = drag.strip()
+            if inner.startswith("{") and inner.endswith("}"):
+                names.add(inner[1:-1])
+        for child in node.get("children", []) or []:
+            walk(child)
+
+    for idx, model in enumerate(actions):
+        if idx >= before_index:
+            break
+        cls = ACTION_REGISTRY.get(model.action_type, (None,))[0]
+        if cls is None:
+            continue
+        try:
+            action = cls(model.params)
+            node = action.output_vars()
+        except Exception:
+            node = None
+        if node:
+            walk(node)
+
+    return names

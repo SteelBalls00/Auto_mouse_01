@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QCheckBox, QComboBox, QPlainTextEdit
 )
 from app.actions.registry import ACTION_REGISTRY
+from app.ui.var_highlighter import VarHighlighter
 
 
 class ActionEditor(QWidget):
@@ -37,6 +38,10 @@ class ActionEditor(QWidget):
                 w.setPlainText(str(value))
                 w.setMinimumHeight(80)
                 w.setAcceptDrops(True)
+                # Подсветка переменных
+                hl = VarHighlighter(w.document())
+                hl.set_known(getattr(self, "_known_vars", set()))
+                w._var_highlighter = hl
 
             elif key in options:
                 # ── Комбобокс ─────────────────────────────────────────
@@ -67,11 +72,55 @@ class ActionEditor(QWidget):
                 w.setMaximum(10_000_000)
                 w.setValue(value)
 
+
             else:
                 w = QLineEdit(str(value))
+                w.textChanged.connect(
+                    lambda _t, ww=w: self._check_lineedit_vars(ww)
+                )
 
             self._layout.addRow(QLabel(label_text), w)
             self.editors[key] = (w, type(value))
+
+            # начальная проверка для QLineEdit
+            if isinstance(w, QLineEdit):
+                self._check_lineedit_vars(w)
+
+    def _check_lineedit_vars(self, line_edit):
+        import re
+        text = line_edit.text()
+        tokens = re.findall(r"\{([^{}]+)\}", text)
+        if not tokens:
+            line_edit.setStyleSheet("")  # нет переменных — обычный вид
+            return
+
+        known = getattr(self, "_known_vars", set())
+        all_ok = True
+        for expr in tokens:
+            expr = expr.strip()
+            ok = expr in known
+            if not ok and (expr.endswith(".index") or expr.endswith(".count")):
+                ns = expr.rsplit(".", 1)[0]
+                ok = any(k == expr or k.startswith(ns + ".") for k in known)
+            if not ok:
+                all_ok = False
+                break
+
+        if all_ok:
+            line_edit.setStyleSheet("QLineEdit { border: 1px solid #16a34a; }")
+        else:
+            line_edit.setStyleSheet("QLineEdit { border: 1px solid #dc2626; }")
+
+    def set_known_vars(self, known_vars):
+        """Передать список доступных переменных (для подсветки)."""
+        self._known_vars = set(known_vars)
+        for key, (w, _t) in self.editors.items():
+            hl = getattr(w, "_var_highlighter", None)
+            if hl is not None:
+                hl.set_known(self._known_vars)
+            from PyQt5.QtWidgets import QLineEdit
+            if isinstance(w, QLineEdit):
+                self._check_lineedit_vars(w)
 
     def apply(self):
         if not self.model:

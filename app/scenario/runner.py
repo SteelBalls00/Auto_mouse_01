@@ -15,13 +15,15 @@ class ScenarioRunner(QThread):
       finished_ok()         — сценарий завершён успешно
       finished_error(str)   — сценарий завершён с ошибкой
     """
-    log_line       = pyqtSignal(str)
-    step_started   = pyqtSignal(int)
-    finished_ok    = pyqtSignal()
+    log_line = pyqtSignal(str)
+    step_started = pyqtSignal(int)
+    finished_ok = pyqtSignal()
     finished_error = pyqtSignal(str)
+    awaiting_step = pyqtSignal(int)
 
     def __init__(self, actions, parent=None, start_from=0, single_step=False,
-                 scenario_name="scenario", project_root=None):
+                 scenario_name="scenario", project_root=None,
+                 step_mode=False, step_delay=0.0):
         super().__init__(parent)
         self.actions     = actions
         self.context     = {}
@@ -35,10 +37,19 @@ class ScenarioRunner(QThread):
         )
         self._logger    = None
         self._log_path  = None
+        # Отладка по шагам
+        self._step_mode  = step_mode          # ждать разрешения перед каждым шагом
+        self._step_delay = step_delay         # задержка (сек) в замедленном режиме
+        self._step_gate  = threading.Event()  # разрешение на следующий шаг
+        self._step_gate.set()
 
     def stop(self):
         """Запросить остановку сценария."""
         self._stop_event.set()
+
+    def allow_next_step(self):
+        """Разрешить выполнение следующего шага (пошаговый режим)."""
+        self._step_gate.set()
 
     def _log(self, message, level="info"):
         """Лог идёт и в UI, и в файл."""
@@ -91,6 +102,8 @@ class ScenarioRunner(QThread):
         }
 
         loop_stack = []
+        loop_stack = []
+        try_stack = []  # активные try-блоки: [{"start","catch","end","name"}]
         i = self._start_from
         while i < len(self.actions):
             # Пауза от бота (если задана) — ждём пока снимут
@@ -106,13 +119,37 @@ class ScenarioRunner(QThread):
                 self.finished_error.emit("Остановлено")
                 return
 
+            # ── Отладка по шагам ─────────────────────────────────────
+            if self._step_mode:
+                self._step_gate.clear()
+                self.awaiting_step.emit(i)
+                # ждём, пока UI разрешит (кнопка «Дальше») или остановят
+                while not self._step_gate.is_set():
+                    if self._stop_event.is_set():
+                        self._log("⏹ Остановлено пользователем", "warning")
+                        self.finished_error.emit("Остановлено")
+                        return
+                    self._step_gate.wait(0.1)
+            elif self._step_delay > 0:
+                # Замедленный режим — просто пауза с проверкой стопа
+                slept = 0.0
+                while slept < self._step_delay:
+                    if self._stop_event.is_set():
+                        self._log("⏹ Остановлено пользователем", "warning")
+                        self.finished_error.emit("Остановлено")
+                        return
+                    self.msleep(50)
+                    slept += 0.05
+
             model = self.actions[i]
             t = model.action_type
 
             if not model.enabled and t not in (
                     "if_start", "else", "end_if",
                     "for_each_start", "end_for",
-                    "while_start", "end_while"
+                    "while_start", "end_while",
+                    "repeat_start", "end_repeat",
+                    "try_start", "catch", "end_try",
             ):
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}] ⊘ Пропущено (отключено)")
@@ -141,6 +178,40 @@ class ScenarioRunner(QThread):
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}] ИНАЧЕ → пропуск")
                 i = end_idx + 1
+
+            elif t == "try_start":
+                self.step_started.emit(i)
+                self._log(f"[{i + 1}] 🛡 ПОПРОБОВАТЬ")
+                info = pairs[i]
+                try_stack.append({
+                    "start": i,
+                    "catch": info.get("catch"),
+                    "end": info["end"],
+                    "name": (model.params.get("try_name") or "try").strip() or "try",
+                })
+                i += 1
+
+            elif t == "catch":
+                # Дошли сюда естественным путём (без ошибки) — пропускаем catch-блок
+                self.step_started.emit(i)
+                self._log(f"[{i + 1}] 🩹 (ошибок не было, пропуск обработчика)")
+                # ищем свой try по позиции catch
+                end_idx = None
+                for ts in reversed(try_stack):
+                    if ts.get("catch") == i:
+                        end_idx = ts["end"]
+                        break
+                if end_idx is None:
+                    end_idx = pairs.get(i, {}).get("end", i)
+                i = end_idx + 1
+
+            elif t == "end_try":
+                self.step_started.emit(i)
+                self._log(f"[{i + 1}] КОНЕЦ ОБРАБОТКИ")
+                # снимаем завершившийся try со стека
+                if try_stack and try_stack[-1]["end"] == i:
+                    try_stack.pop()
+                i += 1
 
             elif t == "end_if":
                 self.step_started.emit(i)
@@ -182,6 +253,43 @@ class ScenarioRunner(QThread):
                     "current": first if isinstance(first, dict) else {"value": first},
                 }
                 i += 1
+
+            elif t == "repeat_start":
+                loop_name = (model.params.get("loop_name") or "").strip() or f"rep_{i}"
+                times = int(model.params.get("times", 1) or 1)
+                end_idx = pairs[i]["end"]
+                self.step_started.emit(i)
+                self._log(f"[{i + 1}] ПОВТОРИТЬ {times} раз")
+
+                if times <= 0:
+                    i = end_idx + 1
+                    continue
+
+                loop_stack.append({
+                    "type": "repeat", "start": i, "end": end_idx,
+                    "name": loop_name, "items": list(range(times)), "iter": 0,
+                })
+                self.context[loop_name] = {"index": 1, "count": times}
+                i += 1
+
+            elif t == "end_repeat":
+                if not loop_stack or loop_stack[-1].get("type") != "repeat":
+                    self._log(f"✖ КОНЕЦ ПОВТОРА без ПОВТОРИТЬ на шаге {i + 1}", "error")
+                    self.finished_error.emit("Структурная ошибка")
+                    return
+                top = loop_stack[-1]
+                top["iter"] += 1
+                if top["iter"] < len(top["items"]):
+                    self.context[top["name"]] = {
+                        "index": top["iter"] + 1, "count": len(top["items"])}
+                    self.step_started.emit(i)
+                    self._log(f"[{i + 1}] → повтор {top['iter'] + 1}/{len(top['items'])}")
+                    i = top["start"] + 1
+                else:
+                    self.step_started.emit(i)
+                    self._log(f"[{i + 1}] КОНЕЦ ПОВТОРА")
+                    loop_stack.pop()
+                    i += 1
 
             elif t == "end_for":
                 if not loop_stack:
@@ -288,17 +396,53 @@ class ScenarioRunner(QThread):
                 action = ACTION_REGISTRY[t][0](model.params)
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}/{len(self.actions)}] {action.name}...")
+
                 try:
                     action.execute_with_resolved(self.context)
                     self._log("  ✔ Готово")
+                    i += 1
+
                 except Exception as exc:
+                    err_text = str(exc)
                     self._log(
-                        f"  ✖ Ошибка на шаге {i + 1} ({action.name}): {exc}",
+                        f"  ✖ Ошибка на шаге {i + 1} ({action.name}): {err_text}",
                         "error"
                     )
-                    self.finished_error.emit(str(exc))
-                    return
-                i += 1
+
+                    # Есть ли активный try-блок, у которого мы внутри try-части?
+                    handler = None
+                    while try_stack:
+                        ts = try_stack[-1]
+                        # ошибка попала в try-часть (до catch)
+                        if ts["catch"] is not None and i < ts["catch"]:
+                            handler = ts
+                            break
+                        elif ts["catch"] is None:
+                            # try без catch — просто гасим ошибку, прыгаем за end_try
+                            handler = ts
+                            break
+                        else:
+                            # ошибка случилась уже внутри catch-блока этого try —
+                            # этот try не может её ловить, снимаем и ищем выше
+                            try_stack.pop()
+                    if handler is None:
+                        # Никто не ловит — обычное падение
+                        self.finished_error.emit(err_text)
+                        return
+                    # Кладём данные об ошибке в переменную блока
+                    self.context[handler["name"]] = {
+                        "error": err_text,
+                        "failed": 1,
+                        "step": i + 1,
+                    }
+
+                    if handler["catch"] is not None:
+                        self._log(f"  🩹 Переход в обработчик ошибки '{handler['name']}'")
+                        i = handler["catch"] + 1
+                    else:
+                        self._log(f"  🩹 Ошибка подавлена (без обработчика)")
+                        i = handler["end"] + 1
+                        try_stack.pop()
 
         self._log("✔ Сценарий завершён")
         self.finished_ok.emit()
@@ -343,6 +487,9 @@ class ScenarioRunner(QThread):
             elif t == "for_each_start":
                 stack.append((i, "for"))
                 pairs[i] = {"type": "for", "end": None}
+            elif t == "repeat_start":
+                stack.append((i, "repeat"))
+                pairs[i] = {"type": "repeat", "end": None}
             elif t == "while_start":
                 stack.append((i, "while"))
                 pairs[i] = {"type": "while", "end": None}
@@ -358,12 +505,28 @@ class ScenarioRunner(QThread):
                 if not stack or stack[-1][1] != "for":
                     raise RuntimeError(f"КОНЕЦ ЦИКЛА без ЦИКЛА на шаге {i + 1}")
                 pairs[stack.pop()[0]]["end"] = i
+            elif t == "end_repeat":
+                if not stack or stack[-1][1] != "repeat":
+                    raise RuntimeError(f"КОНЕЦ ПОВТОРА без ПОВТОРИТЬ на шаге {i + 1}")
+                pairs[stack.pop()[0]]["end"] = i
             elif t == "end_while":
                 if not stack or stack[-1][1] != "while":
                     raise RuntimeError(f"КОНЕЦ ЦИКЛА ПОКА без ЦИКЛА ПОКА на шаге {i + 1}")
                 pairs[stack.pop()[0]]["end"] = i
+            elif t == "try_start":
+                stack.append((i, "try"))
+                pairs[i] = {"type": "try", "catch": None, "end": None}
+            elif t == "catch":
+                if not stack or stack[-1][1] != "try":
+                    raise RuntimeError(f"ПРИ ОШИБКЕ без ПОПРОБОВАТЬ на шаге {i + 1}")
+                pairs[stack[-1][0]]["catch"] = i
+            elif t == "end_try":
+                if not stack or stack[-1][1] != "try":
+                    raise RuntimeError(f"КОНЕЦ ОБРАБОТКИ без ПОПРОБОВАТЬ на шаге {i + 1}")
+                pairs[stack.pop()[0]]["end"] = i
         if stack:
             idx, kind = stack[-1]
-            names = {"if": "ЕСЛИ", "for": "ЦИКЛ", "while": "ЦИКЛ ПОКА"}
+            names = {"if": "ЕСЛИ", "for": "ЦИКЛ", "while": "ЦИКЛ ПОКА",
+                     "repeat": "ПОВТОРИТЬ", "try": "ПОПРОБОВАТЬ"}
             raise RuntimeError(f"Незакрытый {names.get(kind, kind)} на шаге {idx + 1}")
         return pairs
