@@ -228,17 +228,9 @@ class MainWindow(QMainWindow):
         current_row = self.list.currentRow()
         self.list.blockSignals(True)
         self.list.clear()
-        level = 0
         for i, model in enumerate(self.actions):
             t = model.action_type
-            # уменьшаем уровень ДО рендера на end_if и else
-            if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try"):
-                level = max(0, level - 1)
-            indent  = "    " * level
-            else_outdent = "  " if t == "else" else ""
-            prefix = "⊘ " if not model.enabled else ""
-            text = f"{i + 1}. {indent}{else_outdent}{prefix}{model.title()}"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem(self._step_text(i))
             if not model.enabled:
                 f = item.font()
                 f.setItalic(True)
@@ -273,8 +265,6 @@ class MainWindow(QMainWindow):
 
             self.list.addItem(item)
 
-            if t in ("if_start", "for_each_start", "while_start", "repeat_start", "try_start"):
-                level += 1
         self.list.blockSignals(False)
 
         if 0 <= current_row < len(self.actions):
@@ -310,13 +300,39 @@ class MainWindow(QMainWindow):
         for i in range(self.list.count()):
             self.list.item(i).setBackground(self._base_color(self.actions[i].action_type))
 
+    # ── Отступы / текст шага ─────────────────────────────────────────
+    def _level_at(self, index):
+        """Уровень вложенности (кол-во отступов) для шага index —
+        той же логикой, что и _refresh_list."""
+        level = 0
+        for i in range(index):
+            t = self.actions[i].action_type
+            if t in ("if_start", "for_each_start", "while_start", "repeat_start", "try_start"):
+                level += 1
+            if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try"):
+                level = max(0, level - 1)
+        # для самого шага: закрывающие блоки рендерятся на уровень меньше
+        t = self.actions[index].action_type
+        if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try"):
+            level = max(0, level - 1)
+        return level
+
+    def _step_text(self, index):
+        """Полный текст элемента списка: номер + отступ + префиксы + заголовок."""
+        model = self.actions[index]
+        t = model.action_type
+        indent = "    " * self._level_at(index)
+        else_outdent = "  " if t == "else" else ""
+        prefix = "⊘ " if not model.enabled else ""
+        return f"{index + 1}. {indent}{else_outdent}{prefix}{model.title()}"
+
     # ── Выбор шага ───────────────────────────────────────────────────
     def _on_select(self, row):
         # Сохранить изменения предыдущего шага
         if self.current_index is not None and 0 <= self.current_index < len(self.actions):
             self.editor.apply()
             self.list.item(self.current_index).setText(
-                f"{self.current_index + 1}. {self.actions[self.current_index].title()}"
+                self._step_text(self.current_index)
             )
             self.vars_tree.rebuild(self.actions)
 

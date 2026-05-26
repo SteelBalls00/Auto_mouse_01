@@ -9,34 +9,39 @@ MIME_ACTION_TYPE = "application/x-rpa-action-type"
 
 
 # Какое действие в какую группу попадает
+# Какое действие в какую группу попадает
 ACTION_GROUPS = [
     ("Основное", [
-        "wait", "type_text", "press_key", "run_program", "cmd", "python_eval", "ask_yesno"
+        "wait", "type_text", "paste_text", "press_key", "run_program", "cmd",
+        "python_eval", "ask_yesno", "set_variable", "wait_window_gone", "log_message",
     ]),
     ("Мышь и координаты", [
         "click_xy"
     ]),
     ("Изображения", [
-        "wait_image", "click_image", "click_image_in_window"
+        "wait_image", "click_image", "click_image_in_window",
+        "wait_image_gone", "screenshot", "ocr_region",
     ]),
     ("Окна и элементы", [
-        "find_window", "window_focus", "window_click_xy", "window_click_element"
+        "find_window", "window_focus", "window_click_xy", "window_click_element",
+        "read_element",
+        "window_state", "window_move", "window_resize",
+        "window_move_resize", "window_send_message",
     ]),
     ("Управление потоком", [
         "if_start", "else", "end_if",
         "for_each_start", "end_for",
         "while_start", "end_while",
+        "repeat_start", "end_repeat",
+        "try_start", "catch", "end_try",
         "break", "continue",
         "run_scenario",
     ]),
     ("Базы данных", [
         "sql", "sql_many"
     ]),
-    ("Специальные", [
-        "uni_stat_2003"
-    ]),
     ("Проверки (условия)", [
-        "check_image", "check_process", "check_window"
+        "check_image", "check_process", "check_window", "check_file"
     ]),
     ("Процессы и службы", [
         "kill_process", "start_service", "stop_service"
@@ -48,41 +53,8 @@ ACTION_GROUPS = [
     ("Архивы", [
         "add_to_archive", "extract_archive"
     ]),
-    ("Окна и элементы", [
-        "find_window", "window_focus", "window_click_xy", "window_click_element",
-        "window_state", "window_move", "window_resize",
-        "window_move_resize", "window_send_message",
-    ]),
-    ("Окна и элементы", [
-        "find_window", "window_focus", "window_click_xy", "window_click_element",
-        "read_element",
-        "window_state", "window_move", "window_resize",
-        "window_move_resize", "window_send_message",
-    ]),
-    ("Изображения", [
-        "wait_image", "click_image", "click_image_in_window",
-        "wait_image_gone", "screenshot", "ocr_region",
-    ]),
-    ("Управление потоком", [
-        "if_start", "else", "end_if",
-        "for_each_start", "end_for",
-        "while_start", "end_while",
-        "repeat_start", "end_repeat",
-        "break", "continue",
-        "run_scenario",
-    ]),
-    ("Основное", [
-        "wait", "type_text", "press_key", "run_program", "cmd",
-        "python_eval", "ask_yesno", "set_variable", "wait_window_gone",
-    ]),
-    ("Управление потоком", [
-        "if_start", "else", "end_if",
-        "for_each_start", "end_for",
-        "while_start", "end_while",
-        "repeat_start", "end_repeat",
-        "try_start", "catch", "end_try",
-        "break", "continue",
-        "run_scenario",
+    ("Специальные", [
+        "uni_stat_2003"
     ]),
 ]
 

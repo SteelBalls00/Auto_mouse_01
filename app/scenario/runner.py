@@ -392,10 +392,14 @@ class ScenarioRunner(QThread):
                 self._log(f"[{i + 1}] ← возврат к ПОКА")
                 i = w_state["start"]
 
+
             else:
+
                 action = ACTION_REGISTRY[t][0](model.params)
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}/{len(self.actions)}] {action.name}...")
+                # даём действию возможность писать в лог
+                self.context["_log"] = lambda m: self._log(f"    {m}")
 
                 try:
                     action.execute_with_resolved(self.context)

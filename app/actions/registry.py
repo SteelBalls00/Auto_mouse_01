@@ -2,6 +2,7 @@ from app.actions.wait import WaitAction
 from app.actions.run_program import RunProgramAction
 from app.actions.click_xy import ClickXYAction
 from app.actions.type_text import TypeTextAction
+from app.actions.paste_text import PasteTextAction
 from app.actions.wait_image import WaitImageAction, ClickImageAction
 from app.actions.click_image_in_window import ClickImageInWindowAction
 from app.actions.cmd import CmdAction
@@ -40,6 +41,7 @@ from app.actions.ocr import OcrRegionAction
 from app.actions.wait_gone import WaitImageGoneAction, WaitWindowGoneAction
 from app.actions.basic_vars import SetVariableAction, RepeatStartAction, EndRepeatAction
 from app.actions.try_catch import TryStartAction, CatchAction, EndTryAction
+from app.actions.log_message import LogMessageAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -59,6 +61,10 @@ ACTION_REGISTRY = {
     "type_text": (
         TypeTextAction,
         {"text": "", "enter": False, "delay": 0}
+    ),
+    "paste_text": (
+        PasteTextAction,
+        {"text": "", "delay_ms": 100, "restore": ""}
     ),
     "wait_image": (
         WaitImageAction,
@@ -320,5 +326,9 @@ ACTION_REGISTRY = {
     "end_try": (
         EndTryAction,
         {}
+    ),
+    "log_message": (
+        LogMessageAction,
+        {"message": ""}
     ),
 }
