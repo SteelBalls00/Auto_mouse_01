@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         btn_del = QPushButton("🗑 Удалить")
         btn_up = QPushButton("⬆ Вверх")
         btn_down = QPushButton("⬇ Вниз")
+        btn_new = QPushButton("📄 Новый сценарий")
         btn_save = QPushButton("💾 Сохранить")
         btn_save_as = QPushButton("💾 Сохранить как…")
         btn_load = QPushButton("📂 Открыть")
@@ -85,6 +86,7 @@ class MainWindow(QMainWindow):
         btn_del.clicked.connect(self._delete_action)
         btn_up.clicked.connect(self._move_up)
         btn_down.clicked.connect(self._move_down)
+        btn_new.clicked.connect(self._new_scenario)
         btn_save.clicked.connect(self._save_scenario)
         btn_save_as.clicked.connect(self._save_scenario_as)
         btn_load.clicked.connect(self._load_scenario)
@@ -99,6 +101,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self.list)
         left.addWidget(btn_del)
         left.addLayout(move_row)
+        left.addWidget(btn_new)
         left.addWidget(btn_save)
         left.addWidget(btn_save_as)
         left.addWidget(btn_load)
@@ -177,6 +180,28 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(splitter)
         self._setup_emergency_stop()
+
+    def _new_scenario(self):
+        # Если есть несохранённые шаги — переспрашиваем
+        if self.actions:
+            reply = QMessageBox.question(
+                self, "Новый сценарий",
+                "Текущий сценарий будет очищен. Продолжить?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        self.actions = []
+        self.current_index = None
+        self._scenario_path = None
+        self._refresh_list()
+        self.editor.load_action(None)
+        self.vars_tree.rebuild(self.actions)
+        self.log.clear()
+        self._update_title("новый")
+        self.log.append("📄 Новый сценарий")
 
     def _setup_emergency_stop(self):
         """Глобальная горячая клавиша аварийной остановки."""
