@@ -1,4 +1,5 @@
 import os
+import copy
 
 from PyQt5.QtCore import Qt, pyqtSlot, QSize
 from PyQt5.QtGui import QColor
@@ -38,6 +39,7 @@ class MainWindow(QMainWindow):
         self.current_index = None
         self._runner       = None
         self._scenario_path = None
+        self._clipboard_steps = []   # скопированные шаги (как dict), переживают смену сценария
 
         self._build_ui()
 
@@ -200,6 +202,7 @@ class MainWindow(QMainWindow):
             else:
                 act_toggle = menu.addAction("✓ Включить шаг")
             menu.addSeparator()
+            act_copy = menu.addAction("📋 Копировать")
             act_delete = menu.addAction("🗑 Удалить")
             act_run_selected = None
         else:
@@ -211,9 +214,18 @@ class MainWindow(QMainWindow):
                 else f"✓ Включить выделенные ({n})"
             )
             menu.addSeparator()
+            act_copy = menu.addAction(f"📋 Копировать ({n})")
             act_delete = menu.addAction(f"🗑 Удалить выделенные ({n})")
             act_run_from = None
             act_run_one = None
+
+        # Вставка — всегда доступна, если в буфере что-то есть
+        act_paste = None
+        if self._clipboard_steps:
+            menu.addSeparator()
+            act_paste = menu.addAction(
+                f"📄 Вставить ниже ({len(self._clipboard_steps)})"
+            )
 
         chosen = menu.exec_(global_pos)
         if chosen is None:
@@ -231,6 +243,10 @@ class MainWindow(QMainWindow):
                 self.list.setCurrentRow(row)
             else:
                 self._toggle_selected()
+        elif chosen is act_copy:
+            self._copy_steps(rows)
+        elif chosen is act_paste:
+            self._paste_steps(row)
         elif chosen is act_delete:
             self._delete_action()
 
@@ -516,6 +532,35 @@ class MainWindow(QMainWindow):
         if not rows:
             return
         self._launch(start_from=rows[0], stop_after=rows[-1])
+
+    # ── Копирование / вставка шагов ──────────────────────────────────
+    def _copy_steps(self, rows):
+        """Скопировать шаги (в порядке следования) в буфер как независимые dict."""
+        if not rows:
+            return
+        self.editor.apply()   # зафиксировать правки текущего шага
+        self._clipboard_steps = [
+            copy.deepcopy(self.actions[r].to_dict())
+            for r in sorted(rows) if 0 <= r < len(self.actions)
+        ]
+        self.log.append(f"📋 Скопировано шагов: {len(self._clipboard_steps)}")
+
+    def _paste_steps(self, row):
+        """Вставить шаги из буфера сразу под шагом row (или в конец, если row<0)."""
+        if not self._clipboard_steps:
+            return
+        if self.current_index is not None and 0 <= self.current_index < len(self.actions):
+            self.editor.apply()
+
+        insert_at = (row + 1) if row >= 0 else len(self.actions)
+        new_models = [ActionModel.from_dict(copy.deepcopy(d)) for d in self._clipboard_steps]
+        for k, m in enumerate(new_models):
+            self.actions.insert(insert_at + k, m)
+
+        self._refresh_list()
+        # выделяем вставленные
+        self._reselect_rows(list(range(insert_at, insert_at + len(new_models))))
+        self.log.append(f"📄 Вставлено шагов: {len(new_models)}")
 
     def _on_step_moved(self, src, dst):
         """Шаг перетащили мышкой в новое место."""

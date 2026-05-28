@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 from app.actions.registry import ACTION_REGISTRY
 from app.actions.sql_utils import parse_select_columns
 from app.ui.var_highlighter import VarHighlighter
+from app.ui.code_highlighter import CodeHighlighter
 
 
 class ColorPickerButton(QPushButton):
@@ -56,6 +57,15 @@ class ActionEditor(QWidget):
         """Передать ссылку на список всех шагов — нужно автозаполнению колонок цикла."""
         self._actions = actions or []
 
+    @staticmethod
+    def _highlight_language(action_type, key):
+        """Язык подсветки для многострочного поля или None (только переменные)."""
+        if action_type in ("sql", "sql_many") and key == "query":
+            return "sql"
+        if action_type == "python_eval" and key == "code":
+            return "python"
+        return None
+
     def load_action(self, model):
         self.model = model
 
@@ -84,8 +94,12 @@ class ActionEditor(QWidget):
                 w.setPlainText(str(value))
                 w.setMinimumHeight(80)
                 w.setAcceptDrops(True)
-                # Подсветка переменных
-                hl = VarHighlighter(w.document())
+                # Подсветка: SQL / Python — иначе только переменные
+                lang = self._highlight_language(model.action_type, key)
+                if lang:
+                    hl = CodeHighlighter(w.document(), language=lang)
+                else:
+                    hl = VarHighlighter(w.document())
                 hl.set_known(getattr(self, "_known_vars", set()))
                 w._var_highlighter = hl
 

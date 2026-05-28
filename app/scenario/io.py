@@ -96,9 +96,20 @@ def save_scenario(parent_folder, name, actions):
         pass
 
     data = {"name": name, "steps": steps_out}
-    scenario_path = os.path.join(scenario_dir, "scenario.json")
+    scenario_file = f"{name}.json"
+    scenario_path = os.path.join(scenario_dir, scenario_file)
     with open(scenario_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+    # Миграция: если рядом лежит старый scenario.json (от прежнего формата),
+    # а новый файл называется иначе — удаляем, чтобы не было двух источников правды.
+    if scenario_file != "scenario.json":
+        legacy = os.path.join(scenario_dir, "scenario.json")
+        if os.path.isfile(legacy):
+            try:
+                os.remove(legacy)
+            except OSError:
+                pass
 
     return scenario_path
 
