@@ -2,6 +2,7 @@ import os
 import threading
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from app.actions.base import log_substitutions
 from app.actions.registry import ACTION_REGISTRY
 from app.scenario.logger import setup_run_logger, close_logger
 
@@ -197,6 +198,8 @@ class ScenarioRunner(QThread):
 
             model = self.actions[i]
             t = model.action_type
+            # _log доступен и условиям, и обычным действиям
+            self.context["_log"] = lambda m: self._log(f"    {m}")
 
             if not model.enabled and t not in (
                     "if_start", "else", "end_if",
@@ -220,6 +223,7 @@ class ScenarioRunner(QThread):
                     return
                 self.step_started.emit(i)
                 self._log(f"[{i + 1}] ЕСЛИ → {cond}")
+                log_substitutions(model.params, self.context)
                 if cond:
                     i += 1
                 else:
@@ -416,6 +420,7 @@ class ScenarioRunner(QThread):
                 self.step_started.emit(i)
                 if not cond:
                     self._log(f"[{i + 1}] ПОКА → False, выход")
+                    log_substitutions(model.params, self.context)
                     # снимаем со стека и прыгаем за end_while
                     end_idx = w_state["end"]
                     loop_stack.remove(w_state)
@@ -430,6 +435,7 @@ class ScenarioRunner(QThread):
                     return
 
                 self._log(f"[{i + 1}] ПОКА → True (итерация {w_state['iter']})")
+                log_substitutions(model.params, self.context)
                 i += 1
 
             elif t == "end_while":
