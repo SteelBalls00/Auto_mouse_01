@@ -1,13 +1,13 @@
 import os
 import copy
 
-from PyQt5.QtCore import Qt, pyqtSlot, QSize
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt, pyqtSlot, QSize, QSettings
+from PyQt5.QtGui import QColor, QBrush
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
     QPushButton, QLabel, QTextEdit,
     QVBoxLayout, QHBoxLayout, QMessageBox,
-    QFileDialog, QSplitter
+    QFileDialog, QSplitter, QApplication
 )
 
 from app.actions.registry import ACTION_REGISTRY
@@ -19,6 +19,7 @@ from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
 from app.ui.scenario_manager import ScenarioManager
+from app.ui.theme import apply_theme
 
 
 class MainWindow(QMainWindow):
@@ -43,6 +44,12 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
 
+        # Восстановление сохранённой темы
+        self._settings = QSettings("AutoMouse", "RPA")
+        dark = self._settings.value("dark_theme", False, type=bool)
+        self.btn_theme.setChecked(dark)
+        self._apply_theme(dark)
+
     # ── Построение UI ────────────────────────────────────────────────
     def _build_ui(self):
         # ── Палитра действий (самая левая) ────────────────────────────
@@ -57,6 +64,11 @@ class MainWindow(QMainWindow):
 
         # ── Список шагов сценария ─────────────────────────────────────
         self.list = ScenarioList()
+        # Малиновое выделение: активное — яркое, при потере фокуса — тёмно-малиновое
+        self.list.setStyleSheet(
+            "QListWidget::item:selected { background: #c2185b; color: #ffffff; }"
+            "QListWidget::item:selected:!active { background: #7a0f38; color: #ffffff; }"
+        )
         self.list.currentRowChanged.connect(self._on_select)
         self.list.actionDropped.connect(self._add_action_at)
         self.list.stepMoved.connect(self._on_step_moved)
@@ -112,6 +124,11 @@ class MainWindow(QMainWindow):
         self.btn_next.setEnabled(False)
         self.btn_next.setVisible(False)
 
+        self.btn_theme = QPushButton("🌙 Тёмная тема")
+        self.btn_theme.setCheckable(True)
+        self.btn_theme.setToolTip("Переключить светлую / тёмную тему")
+        self.btn_theme.clicked.connect(self._toggle_theme)
+
         self.btn_run.clicked.connect(self._run_scenario)
         self.btn_debug.clicked.connect(self._run_debug)
         self.btn_slow.clicked.connect(self._run_slow)
@@ -124,6 +141,8 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.btn_slow)
         run_row.addWidget(self.btn_next)
         run_row.addWidget(self.btn_stop)
+        run_row.addStretch(1)
+        run_row.addWidget(self.btn_theme)
 
         right = QVBoxLayout()
         right.addWidget(QLabel("Параметры шага"))
@@ -276,53 +295,17 @@ class MainWindow(QMainWindow):
         for i, model in enumerate(self.actions):
             t = model.action_type
             item = QListWidgetItem(self._step_text(i))
-            if not model.enabled:
-                f = item.font()
-                f.setItalic(True)
-                item.setFont(f)
-                item.setForeground(QColor("#9ca3af"))
 
-            # ── Разделитель: цветная увеличенная строка ───────────────
+            font = item.font()
+            font.setItalic(not model.enabled)
             if t == "separator":
-                col = QColor(model.params.get("color") or "#fde68a")
-                if not col.isValid():
-                    col = QColor("#fde68a")
-                item.setBackground(col)
-                fnt = item.font()
-                fnt.setBold(True)
-                item.setFont(fnt)
+                font.setBold(True)
                 item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 row_h = self.list.fontMetrics().height()
                 item.setSizeHint(QSize(0, row_h * 2 + 8))   # ~двойная высота
-                self.list.addItem(item)
-                continue
+            item.setFont(font)
 
-            # Цвет фона по типу
-            if t == "if_start":
-                item.setBackground(QColor("#dbeafe"))
-            elif t == "else":
-                item.setBackground(QColor("#fed7aa"))
-            elif t == "end_if":
-                item.setBackground(QColor("#e5e7eb"))
-            elif t == "for_each_start":
-                item.setBackground(QColor("#e9d5ff"))
-            elif t == "end_for":
-                item.setBackground(QColor("#ddd6fe"))
-            elif t == "while_start":
-                item.setBackground(QColor("#fef3c7"))
-            elif t == "end_while":
-                item.setBackground(QColor("#fde68a"))
-            elif t in ("break", "continue"):
-                item.setBackground(QColor("#fecaca"))
-            elif t in ("repeat_start", "end_repeat"):
-                item.setBackground(QColor("#e9d5ff"))
-            elif t == "try_start":
-                item.setBackground(QColor("#fce7f3"))  # розовый
-            elif t == "catch":
-                item.setBackground(QColor("#fbcfe8"))
-            elif t == "end_try":
-                item.setBackground(QColor("#f9a8d4"))
-
+            self._style_item(item, model)
             self.list.addItem(item)
 
         self.list.blockSignals(False)
@@ -333,36 +316,55 @@ class MainWindow(QMainWindow):
             self.list.setCurrentRow(len(self.actions) - 1)
         self.vars_tree.rebuild(self.actions)
 
-    def _base_color(self, model):
-        action_type = model.action_type if hasattr(model, "action_type") else model
-        if action_type == "separator" and hasattr(model, "params"):
+    # Светлые подложки управляющих блоков (текст на них всегда тёмный)
+    CONTROL_BG = {
+        "if_start": "#dbeafe", "else": "#fed7aa", "end_if": "#e5e7eb",
+        "for_each_start": "#e9d5ff", "end_for": "#ddd6fe",
+        "while_start": "#fef3c7", "end_while": "#fde68a",
+        "break": "#fecaca", "continue": "#fecaca",
+        "repeat_start": "#e9d5ff", "end_repeat": "#e9d5ff",
+        "try_start": "#fce7f3", "catch": "#fbcfe8", "end_try": "#f9a8d4",
+    }
+
+    def _style_item(self, item, model, highlighted=False):
+        """Единая окраска строки: фон + контрастный текст (для светлой и тёмной темы)."""
+        t = model.action_type
+
+        # ── Фон ───────────────────────────────────────────────────────
+        if highlighted:
+            item.setBackground(QColor("#86efac"))      # выполняемый шаг — зелёный
+        elif t == "separator":
             col = QColor(model.params.get("color") or "#fde68a")
-            return col if col.isValid() else QColor("#fde68a")
-        if action_type == "if_start":       return QColor("#dbeafe")
-        if action_type == "else":           return QColor("#fed7aa")
-        if action_type == "end_if":         return QColor("#e5e7eb")
-        if action_type == "for_each_start": return QColor("#e9d5ff")
-        if action_type == "end_for":        return QColor("#ddd6fe")
-        if action_type in ("break", "continue"): return QColor("#fecaca")
-        if action_type == "while_start":    return QColor("#fef3c7")
-        if action_type == "end_while":      return QColor("#fde68a")
-        if action_type == "try_start": return QColor("#fce7f3")
-        if action_type == "catch":     return QColor("#fbcfe8")
-        if action_type == "end_try":   return QColor("#f9a8d4")
-        return QColor("white")
+            item.setBackground(col if col.isValid() else QColor("#fde68a"))
+        else:
+            bg = self.CONTROL_BG.get(t)
+            item.setBackground(QColor(bg) if bg else QBrush())  # пусто → цвет темы
+
+        # ── Текст ─────────────────────────────────────────────────────
+        if not model.enabled:
+            item.setForeground(QColor("#9ca3af"))
+        elif highlighted:
+            item.setForeground(QColor("#1f2937"))
+        elif t == "separator":
+            col = QColor(model.params.get("color") or "#fde68a")
+            light = col.lightness() if col.isValid() else 255
+            item.setForeground(QColor("#1f2937") if light > 140 else QColor("#f9fafb"))
+        elif self.CONTROL_BG.get(t):
+            item.setForeground(QColor("#1f2937"))      # тёмный текст на пастели
+        else:
+            item.setForeground(QBrush())               # обычный шаг → цвет темы
 
     def _highlight_step(self, index):
-        """Подсветить текущий выполняемый шаг ярко-зелёным."""
+        """Подсветить текущий выполняемый шаг зелёным, остальные — вернуть в норму."""
         for i in range(self.list.count()):
-            item = self.list.item(i)
-            if i == index:
-                item.setBackground(QColor("#86efac"))   # яркий зелёный
-            else:
-                item.setBackground(self._base_color(self.actions[i]))
+            if 0 <= i < len(self.actions):
+                self._style_item(self.list.item(i), self.actions[i],
+                                  highlighted=(i == index))
 
     def _clear_highlight(self):
         for i in range(self.list.count()):
-            self.list.item(i).setBackground(self._base_color(self.actions[i]))
+            if 0 <= i < len(self.actions):
+                self._style_item(self.list.item(i), self.actions[i])
 
     # ── Отступы / текст шага ─────────────────────────────────────────
     def _level_at(self, index):
@@ -668,6 +670,19 @@ class MainWindow(QMainWindow):
 
         if self.actions:
             self.list.setCurrentRow(0)
+
+    def _toggle_theme(self):
+        dark = self.btn_theme.isChecked()
+        self._settings.setValue("dark_theme", dark)
+        self._apply_theme(dark)
+
+    def _apply_theme(self, dark):
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, dark)
+        self.btn_theme.setText("☀ Светлая тема" if dark else "🌙 Тёмная тема")
+        # Перекрасить строки списка под новую тему
+        self._refresh_list()
 
     def _update_title(self, name):
         self.setWindowTitle(f"Python RPA — {name}")
