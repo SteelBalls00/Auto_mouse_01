@@ -1,6 +1,6 @@
 import configparser
 import os
-from app.actions.base import Action
+from app.actions.base import Action, short_value
 
 
 class SqlQueryAction(Action):
@@ -69,11 +69,22 @@ class SqlQueryAction(Action):
                 # Список всех строк под отдельным ключом
                 context[f"{query_name}_rows"] = rows
 
+                log = context.get("_log")
+                if log:
+                    if rows:
+                        log(f"{query_name}: строк {len(rows)}, первая: "
+                            f"{short_value(context[query_name])}")
+                    else:
+                        log(f"{query_name}: 0 строк (результат пуст)")
+
                 if self.params.get("expect_rows", False) and not rows:
                     raise RuntimeError("Запрос не вернул строк")
             else:
                 con.commit()
                 context["sql_rowcount"] = cur.rowcount
+                log = context.get("_log")
+                if log:
+                    log(f"{query_name}: выполнено, затронуто строк: {cur.rowcount}")
 
         finally:
             con.close()

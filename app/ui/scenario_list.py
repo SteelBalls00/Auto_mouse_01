@@ -19,7 +19,7 @@ class ScenarioList(QListWidget):
 
     def __init__(self):
         super().__init__()
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setAcceptDrops(True)
         # Источник drag (наш список) И приёмник drop (палитра + наш список)
         self.setDragEnabled(True)

@@ -47,7 +47,7 @@ parse_date
 Потом в следующем шаге типа «Ввод текста» можно перетащить {parsed.fio}, {parsed.passport} из дерева переменных.
 '''
 
-from app.actions.base import Action
+from app.actions.base import Action, short_value
 
 
 class PythonEvalAction(Action):
@@ -116,6 +116,15 @@ class PythonEvalAction(Action):
 
         # Кладём всё под одним namespace
         context[op_name] = result
+
+        log = context.get("_log")
+        if log:
+            if result:
+                log(f"{op_name}: " + ", ".join(
+                    f"{k}={short_value(v)}" for k, v in result.items()
+                ))
+            else:
+                log(f"{op_name}: (нет выходных переменных)")
 
     def output_vars(self):
         op_name = (self.params.get("op_name") or "").strip()

@@ -29,9 +29,15 @@ class ActionModel:
             return f"ЦИКЛ {loop_name} по {source}"
 
         if self.action_type == "run_scenario":
+            task = (self.params.get("task_name") or "").strip()
             path = self.params.get("scenario_path", "") or "?"
             short = os.path.basename(os.path.dirname(path)) if path else "?"
+            if task:
+                return f"Запустить: {task} ({short})"
             return f"Запустить сценарий: {short}"
+
+        if self.action_type == "separator":
+            return (self.params.get("text") or "").strip() or "— этап —"
 
         if self.action_type == "while_start":
             left = self.params.get("left", "") or "?"

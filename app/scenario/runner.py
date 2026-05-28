@@ -23,13 +23,14 @@ class ScenarioRunner(QThread):
 
     def __init__(self, actions, parent=None, start_from=0, single_step=False,
                  scenario_name="scenario", project_root=None,
-                 step_mode=False, step_delay=0.0):
+                 step_mode=False, step_delay=0.0, stop_after=None):
         super().__init__(parent)
         self.actions     = actions
         self.context     = {}
         self._stop_event = threading.Event()
         self.context["stop_event"] = self._stop_event
         self._start_from    = start_from
+        self._stop_after    = stop_after if stop_after is not None else (len(actions) - 1)
         self._single_step   = single_step
         self._scenario_name = scenario_name
         self._project_root  = project_root or os.path.dirname(
@@ -66,9 +67,12 @@ class ScenarioRunner(QThread):
                 self._scenario_name, self._project_root
             )
             mode = "одного шага" if self._single_step else "сценария"
+            range_str = f"старт с шага {self._start_from + 1}"
+            if self._stop_after < len(self.actions) - 1:
+                range_str += f", до шага {self._stop_after + 1}"
             self._logger.info(
                 f"=== Запуск {mode}: {self._scenario_name} "
-                f"({len(self.actions)} шаг(ов), старт с шага {self._start_from + 1}) ==="
+                f"({len(self.actions)} шаг(ов), {range_str}) ==="
             )
         except Exception as e:
             self.log_line.emit(f"⚠ Не удалось открыть лог-файл: {e}")
@@ -80,12 +84,62 @@ class ScenarioRunner(QThread):
                 return
             self._main_loop()
         finally:
+            try:
+                self._dump_context()
+            except Exception as e:
+                self._log(f"⚠ Не удалось вывести переменные: {e}")
             if self._logger:
                 self._logger.info("=== Конец запуска ===")
                 if self._log_path:
                     self.log_line.emit(f"📝 Лог: {self._log_path}")
                 close_logger(self._logger)
                 self._logger = None
+
+    # ── Снимок переменных в лог ───────────────────────────────────────
+    _SKIP_KEYS = {"stop_event", "pause_event"}
+
+    def _dump_context(self):
+        keys = [
+            k for k in self.context.keys()
+            if not k.startswith("_") and k not in self._SKIP_KEYS
+        ]
+        if not keys:
+            return
+        self._log("── Переменные после выполнения ──")
+        for k in keys:
+            self._log(f"    {k} = {self._fmt_value(self.context[k])}")
+
+    @staticmethod
+    def _short(v, maxlen=80):
+        if isinstance(v, dict):
+            inner = ", ".join(
+                f"{kk}={ScenarioRunner._short(vv, 40)}" for kk, vv in v.items()
+            )
+            return "{" + inner + "}"
+        if isinstance(v, list):
+            return f"[{len(v)} строк]"
+        s = str(v)
+        return s if len(s) <= maxlen else s[:maxlen] + "…"
+
+    @staticmethod
+    def _fmt_value(v, maxlen=400):
+        try:
+            if isinstance(v, dict):
+                inner = ", ".join(
+                    f"{kk}={ScenarioRunner._short(vv)}" for kk, vv in v.items()
+                )
+                s = "{" + inner + "}"
+            elif isinstance(v, list):
+                s = f"[список, {len(v)} строк]"
+                if v:
+                    s += "  первая: " + ScenarioRunner._short(v[0], 200)
+            else:
+                s = str(v)
+        except Exception:
+            s = "<не удалось отобразить>"
+        if len(s) > maxlen:
+            s = s[:maxlen] + "…"
+        return s
 
     def _main_loop(self):
         try:
@@ -105,7 +159,7 @@ class ScenarioRunner(QThread):
         loop_stack = []
         try_stack = []  # активные try-блоки: [{"start","catch","end","name"}]
         i = self._start_from
-        while i < len(self.actions):
+        while i < len(self.actions) and i <= self._stop_after:
             # Пауза от бота (если задана) — ждём пока снимут
             pause_event = self.context.get("pause_event")
             if pause_event is not None:

@@ -21,5 +21,5 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
 
     win = MainWindow()
-    win.show()
+    win.showMaximized()
     sys.exit(app.exec_())

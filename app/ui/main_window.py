@@ -1,6 +1,6 @@
 import os
 
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot, QSize
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         btn_save = QPushButton("💾 Сохранить")
         btn_save_as = QPushButton("💾 Сохранить как…")
         btn_load = QPushButton("📂 Открыть")
+        btn_import = QPushButton("📥 Импорт из сценария…")
 
         btn_del.clicked.connect(self._delete_action)
         btn_up.clicked.connect(self._move_up)
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         btn_save.clicked.connect(self._save_scenario)
         btn_save_as.clicked.connect(self._save_scenario_as)
         btn_load.clicked.connect(self._load_scenario)
+        btn_import.clicked.connect(self._import_actions)
 
         move_row = QHBoxLayout()
         move_row.addWidget(btn_up)
@@ -86,6 +88,7 @@ class MainWindow(QMainWindow):
         left.addWidget(btn_save)
         left.addWidget(btn_save_as)
         left.addWidget(btn_load)
+        left.addWidget(btn_import)
 
         left_w = QWidget()
         left_w.setLayout(left)
@@ -149,7 +152,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(left_w)
         splitter.addWidget(right_w)
         splitter.addWidget(vars_w)
-        splitter.setSizes([180, 180, 240, 460, 180])
+        splitter.setSizes([140, 250, 240, 460, 180])
 
         self.setCentralWidget(splitter)
         self._setup_emergency_stop()
@@ -180,29 +183,55 @@ class MainWindow(QMainWindow):
 
         if not (0 <= row < len(self.actions)):
             return
-        model = self.actions[row]
+        rows = self._selected_rows()
+        # клик правой кнопкой по невыделенному шагу — работаем с ним одним
+        if row not in rows:
+            rows = [row]
+        n = len(rows)
 
         menu = QMenu(self)
-        act_run_from = menu.addAction("▶ Запустить с этого шага")
-        act_run_one = menu.addAction("⏩ Запустить только этот шаг")
-        menu.addSeparator()
-        if model.enabled:
-            act_toggle = menu.addAction("⊘ Отключить шаг")
+        if n <= 1:
+            model = self.actions[row]
+            act_run_from = menu.addAction("▶ Запустить с этого шага")
+            act_run_one = menu.addAction("⏩ Запустить только этот шаг")
+            menu.addSeparator()
+            if model.enabled:
+                act_toggle = menu.addAction("⊘ Отключить шаг")
+            else:
+                act_toggle = menu.addAction("✓ Включить шаг")
+            menu.addSeparator()
+            act_delete = menu.addAction("🗑 Удалить")
+            act_run_selected = None
         else:
-            act_toggle = menu.addAction("✓ Включить шаг")
-        menu.addSeparator()
-        act_delete = menu.addAction("🗑 Удалить")
+            act_run_selected = menu.addAction(f"▶ Запустить выделенные ({n})")
+            menu.addSeparator()
+            all_enabled = all(self.actions[r].enabled for r in rows)
+            act_toggle = menu.addAction(
+                f"⊘ Отключить выделенные ({n})" if all_enabled
+                else f"✓ Включить выделенные ({n})"
+            )
+            menu.addSeparator()
+            act_delete = menu.addAction(f"🗑 Удалить выделенные ({n})")
+            act_run_from = None
+            act_run_one = None
 
         chosen = menu.exec_(global_pos)
+        if chosen is None:
+            return
         if chosen is act_run_from:
             self._run_scenario(start_from=row)
         elif chosen is act_run_one:
             self._run_single_step(row)
+        elif chosen is act_run_selected:
+            self._run_selected()
         elif chosen is act_toggle:
-            self.actions[row].enabled = not self.actions[row].enabled
-            self._refresh_list()
+            if n <= 1:
+                self.actions[row].enabled = not self.actions[row].enabled
+                self._refresh_list()
+                self.list.setCurrentRow(row)
+            else:
+                self._toggle_selected()
         elif chosen is act_delete:
-            self.list.setCurrentRow(row)
             self._delete_action()
 
     def _run_single_step(self, idx):
@@ -236,6 +265,21 @@ class MainWindow(QMainWindow):
                 f.setItalic(True)
                 item.setFont(f)
                 item.setForeground(QColor("#9ca3af"))
+
+            # ── Разделитель: цветная увеличенная строка ───────────────
+            if t == "separator":
+                col = QColor(model.params.get("color") or "#fde68a")
+                if not col.isValid():
+                    col = QColor("#fde68a")
+                item.setBackground(col)
+                fnt = item.font()
+                fnt.setBold(True)
+                item.setFont(fnt)
+                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                row_h = self.list.fontMetrics().height()
+                item.setSizeHint(QSize(0, row_h * 2 + 8))   # ~двойная высота
+                self.list.addItem(item)
+                continue
 
             # Цвет фона по типу
             if t == "if_start":
@@ -273,7 +317,11 @@ class MainWindow(QMainWindow):
             self.list.setCurrentRow(len(self.actions) - 1)
         self.vars_tree.rebuild(self.actions)
 
-    def _base_color(self, action_type):
+    def _base_color(self, model):
+        action_type = model.action_type if hasattr(model, "action_type") else model
+        if action_type == "separator" and hasattr(model, "params"):
+            col = QColor(model.params.get("color") or "#fde68a")
+            return col if col.isValid() else QColor("#fde68a")
         if action_type == "if_start":       return QColor("#dbeafe")
         if action_type == "else":           return QColor("#fed7aa")
         if action_type == "end_if":         return QColor("#e5e7eb")
@@ -294,11 +342,11 @@ class MainWindow(QMainWindow):
             if i == index:
                 item.setBackground(QColor("#86efac"))   # яркий зелёный
             else:
-                item.setBackground(self._base_color(self.actions[i].action_type))
+                item.setBackground(self._base_color(self.actions[i]))
 
     def _clear_highlight(self):
         for i in range(self.list.count()):
-            self.list.item(i).setBackground(self._base_color(self.actions[i].action_type))
+            self.list.item(i).setBackground(self._base_color(self.actions[i]))
 
     # ── Отступы / текст шага ─────────────────────────────────────────
     def _level_at(self, index):
@@ -321,6 +369,9 @@ class MainWindow(QMainWindow):
         """Полный текст элемента списка: номер + отступ + префиксы + заголовок."""
         model = self.actions[index]
         t = model.action_type
+        # Разделитель — баннер по центру, без номера и отступов
+        if t == "separator":
+            return model.title()
         indent = "    " * self._level_at(index)
         else_outdent = "  " if t == "else" else ""
         prefix = "⊘ " if not model.enabled else ""
@@ -340,6 +391,7 @@ class MainWindow(QMainWindow):
             from app.models.action_model import collect_available_vars
             known = collect_available_vars(self.actions, row)
 
+            self.editor.set_actions(self.actions)
             self.editor.load_action(self.actions[row])  # создаём поля
             self.editor.set_known_vars(known)  # потом красим
             self.current_index = row
@@ -388,41 +440,82 @@ class MainWindow(QMainWindow):
         self._refresh_list()
         self.list.setCurrentRow(insert_at)
 
+    def _selected_rows(self):
+        """Отсортированный список индексов выделенных шагов."""
+        return sorted({i.row() for i in self.list.selectedIndexes()})
+
+    def _reselect_rows(self, rows):
+        """Восстановить выделение по списку индексов и поставить курсор на первый."""
+        self.list.clearSelection()
+        for r in rows:
+            if 0 <= r < self.list.count():
+                self.list.item(r).setSelected(True)
+        if rows:
+            self.list.setCurrentRow(rows[0])
+
     def _delete_action(self):
-        row = self.list.currentRow()
-        if row < 0:
-            return
+        rows = self._selected_rows()
+        if not rows:
+            row = self.list.currentRow()
+            if row < 0:
+                return
+            rows = [row]
 
         self.editor.apply()
-        self.actions.pop(row)
+        # Удаляем с конца — индексы оставшихся не сдвигаются
+        for r in reversed(rows):
+            if 0 <= r < len(self.actions):
+                self.actions.pop(r)
         self.current_index = None
         self._refresh_list()
 
         if self.actions:
-            self.list.setCurrentRow(min(row, len(self.actions) - 1))
+            self.list.setCurrentRow(min(rows[0], len(self.actions) - 1))
         else:
             self.editor.load_action(None)
 
     # ── Перемещение шагов ────────────────────────────────────────────
     def _move_up(self):
-        row = self.list.currentRow()
-        if row <= 0:
+        rows = self._selected_rows()
+        if not rows or rows[0] <= 0:
             return
         self.editor.apply()
-        self.actions[row], self.actions[row - 1] = self.actions[row - 1], self.actions[row]
-        self.current_index = row - 1
+        # Идём по возрастанию — каждый swap двигает свой элемент вверх на 1
+        for r in rows:
+            self.actions[r - 1], self.actions[r] = self.actions[r], self.actions[r - 1]
+        self.current_index = rows[0] - 1
         self._refresh_list()
-        self.list.setCurrentRow(row - 1)
+        self._reselect_rows([r - 1 for r in rows])
 
     def _move_down(self):
-        row = self.list.currentRow()
-        if row < 0 or row >= len(self.actions) - 1:
+        rows = self._selected_rows()
+        if not rows or rows[-1] >= len(self.actions) - 1:
             return
         self.editor.apply()
-        self.actions[row], self.actions[row + 1] = self.actions[row + 1], self.actions[row]
-        self.current_index = row + 1
+        # Идём по убыванию — каждый swap двигает свой элемент вниз на 1
+        for r in reversed(rows):
+            self.actions[r], self.actions[r + 1] = self.actions[r + 1], self.actions[r]
+        self.current_index = rows[0] + 1
         self._refresh_list()
-        self.list.setCurrentRow(row + 1)
+        self._reselect_rows([r + 1 for r in rows])
+
+    def _toggle_selected(self):
+        """Если все выделенные включены — отключить всех, иначе включить всех."""
+        rows = self._selected_rows()
+        if not rows:
+            return
+        new_state = not all(self.actions[r].enabled for r in rows)
+        for r in rows:
+            self.actions[r].enabled = new_state
+        self._refresh_list()
+        self._reselect_rows(rows)
+
+    def _run_selected(self):
+        """Запустить только выделенный диапазон шагов (от первого до последнего)."""
+        rows = self._selected_rows()
+        if not rows:
+            return
+        self._launch(start_from=rows[0], stop_after=rows[-1])
 
     def _on_step_moved(self, src, dst):
         """Шаг перетащили мышкой в новое место."""
@@ -534,6 +627,34 @@ class MainWindow(QMainWindow):
     def _update_title(self, name):
         self.setWindowTitle(f"Python RPA — {name}")
 
+    def _import_actions(self):
+        """Импорт всех шагов из другого сценария — вставка после выделенного шага."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Импорт действий из сценария", "", "Сценарий (*.json)"
+        )
+        if not path:
+            return
+        try:
+            name, imported = load_scenario(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка импорта", str(e))
+            return
+        if not imported:
+            QMessageBox.information(self, "Импорт", "В выбранном сценарии нет шагов.")
+            return
+
+        if self.current_index is not None and 0 <= self.current_index < len(self.actions):
+            self.editor.apply()
+
+        row = self.list.currentRow()
+        insert_at = row + 1 if row >= 0 else len(self.actions)
+        for k, m in enumerate(imported):
+            self.actions.insert(insert_at + k, m)
+
+        self._refresh_list()
+        self.list.setCurrentRow(insert_at)
+        self.log.append(f"📥 Импортировано шагов: {len(imported)} из «{name or path}»")
+
     # ── Запуск / остановка ───────────────────────────────────────────
     def _run_scenario(self, start_from=0):
         self._launch(start_from=start_from)
@@ -544,7 +665,7 @@ class MainWindow(QMainWindow):
     def _run_slow(self):
         self._launch(step_delay=1.0)   # 1 сек между шагами
 
-    def _launch(self, start_from=0, step_mode=False, step_delay=0.0):
+    def _launch(self, start_from=0, step_mode=False, step_delay=0.0, stop_after=None):
         if not self.actions:
             QMessageBox.information(self, "Нет шагов", "Добавьте хотя бы один шаг.")
             return
@@ -565,6 +686,7 @@ class MainWindow(QMainWindow):
         self._runner = ScenarioRunner(
             self.actions, self,
             start_from=start_from,
+            stop_after=stop_after,
             scenario_name=self._current_scenario_name(),
             step_mode=step_mode,
             step_delay=step_delay,

@@ -26,6 +26,21 @@ def resolve_vars(text, context):
     return re.sub(r"\{([^{}]+)\}", repl, text)
 
 
+def short_value(v, maxlen=120):
+    """Компактное строковое представление значения для лога."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, dict):
+        inner = ", ".join(f"{k}={short_value(val, 60)}" for k, val in v.items())
+        return "{" + inner + "}"
+    if isinstance(v, list):
+        return f"[{len(v)} строк]"
+    s = str(v)
+    if s == "":
+        return "'' (пусто)"
+    return s if len(s) <= maxlen else s[:maxlen] + "…"
+
+
 class Action:
     name = "Base"
     icon = "•"

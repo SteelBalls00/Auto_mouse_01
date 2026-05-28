@@ -42,6 +42,7 @@ from app.actions.wait_gone import WaitImageGoneAction, WaitWindowGoneAction
 from app.actions.basic_vars import SetVariableAction, RepeatStartAction, EndRepeatAction
 from app.actions.try_catch import TryStartAction, CatchAction, EndTryAction
 from app.actions.log_message import LogMessageAction
+from app.actions.separator import SeparatorAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -64,7 +65,7 @@ ACTION_REGISTRY = {
     ),
     "paste_text": (
         PasteTextAction,
-        {"text": "", "delay_ms": 100, "restore": ""}
+        {"text": "", "delay_ms": 300, "restore": ""}
     ),
     "wait_image": (
         WaitImageAction,
@@ -189,7 +190,7 @@ ACTION_REGISTRY = {
     ),
     "run_scenario": (
         RunScenarioAction,
-        {"scenario_path": "", "stop_on_error": True}
+        {"task_name": "", "scenario_path": "", "stop_on_error": True}
     ),
     "while_start": (
         WhileStartAction,
@@ -330,5 +331,9 @@ ACTION_REGISTRY = {
     "log_message": (
         LogMessageAction,
         {"message": ""}
+    ),
+    "separator": (
+        SeparatorAction,
+        {"text": "", "color": "#fde68a"}
     ),
 }

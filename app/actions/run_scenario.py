@@ -7,6 +7,7 @@ class RunScenarioAction(Action):
     icon = "▶"
     file_params = ("scenario_path",)
     param_labels = {
+        "task_name":     "Имя задачи (для лога и списка)",
         "scenario_path": "Путь к scenario.json",
         "stop_on_error": "Прервать родительский при ошибке вложенного",
     }
@@ -15,6 +16,11 @@ class RunScenarioAction(Action):
         # Импортируем поздно — избежать циклов
         from app.scenario.io import load_scenario
         from app.scenario.runner import ScenarioRunner
+
+        task_name = (self.params.get("task_name") or "").strip()
+        log = context.get("_log")
+        if log and task_name:
+            log(f"Задача: {task_name}")
 
         path = (self.params.get("scenario_path") or "").strip()
         if not path:

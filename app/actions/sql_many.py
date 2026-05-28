@@ -1,6 +1,6 @@
 import configparser
 import os
-from app.actions.base import Action
+from app.actions.base import Action, short_value
 
 
 class SqlQueryManyAction(Action):
@@ -55,6 +55,14 @@ class SqlQueryManyAction(Action):
 
             query_name = (self.params.get("query_name") or "").strip() or "sql_rows"
             context[query_name] = result
+
+            log = context.get("_log")
+            if log:
+                if result:
+                    log(f"{query_name}: строк {len(result)}, первая: "
+                        f"{short_value(result[0])}")
+                else:
+                    log(f"{query_name}: 0 строк (результат пуст)")
 
             if self.params.get("expect_rows", False) and not result:
                 raise RuntimeError("Запрос не вернул строк")

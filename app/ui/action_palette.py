@@ -14,6 +14,7 @@ ACTION_GROUPS = [
     ("Основное", [
         "wait", "type_text", "paste_text", "press_key", "run_program", "cmd",
         "python_eval", "ask_yesno", "set_variable", "wait_window_gone", "log_message",
+        "separator",
     ]),
     ("Мышь и координаты", [
         "click_xy"
@@ -75,6 +76,7 @@ class ActionPaletteTree(QTreeWidget):
         )
 
         self.itemDoubleClicked.connect(self._on_double_click)
+        self._saved_expanded = None   # состояние групп до начала поиска
         self._populate()
 
     def _populate(self):
@@ -137,6 +139,14 @@ class ActionPaletteTree(QTreeWidget):
     def filter_text(self, text):
         """Фильтрация: показать только листья, чей текст содержит подстроку."""
         needle = (text or "").lower().strip()
+
+        # Запоминаем состояние групп один раз — при старте поиска
+        if needle and self._saved_expanded is None:
+            self._saved_expanded = {
+                i: self.topLevelItem(i).isExpanded()
+                for i in range(self.topLevelItemCount())
+            }
+
         for i in range(self.topLevelItemCount()):
             group = self.topLevelItem(i)
             any_visible = False
@@ -148,6 +158,18 @@ class ActionPaletteTree(QTreeWidget):
             group.setHidden(not any_visible)
             if needle:
                 group.setExpanded(any_visible)
+
+        # Поиск очищен — возвращаем группы в прежнее состояние
+        if not needle:
+            if self._saved_expanded is not None:
+                for i in range(self.topLevelItemCount()):
+                    self.topLevelItem(i).setExpanded(
+                        self._saved_expanded.get(i, True)
+                    )
+                self._saved_expanded = None
+            else:
+                for i in range(self.topLevelItemCount()):
+                    self.topLevelItem(i).setExpanded(True)
 
 
 class ActionPalette(QWidget):
