@@ -43,6 +43,7 @@ from app.actions.basic_vars import SetVariableAction, RepeatStartAction, EndRepe
 from app.actions.try_catch import TryStartAction, CatchAction, EndTryAction
 from app.actions.log_message import LogMessageAction
 from app.actions.separator import SeparatorAction
+from app.actions.debug_pause import DebugPauseAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -166,7 +167,7 @@ ACTION_REGISTRY = {
     ),
     "window_click_xy": (
         WindowClickXYAction,
-        {"window_var": "", "x": 0, "y": 0, "button": "left"}
+        {"window_var": "", "x": 0, "y": 0, "button": "left", "double_click": False}
     ),
     "window_click_element": (
         WindowClickElementAction,
@@ -335,5 +336,9 @@ ACTION_REGISTRY = {
     "separator": (
         SeparatorAction,
         {"text": "", "color": "#fde68a"}
+    ),
+    "debug_pause": (
+        DebugPauseAction,
+        {"message": ""}
     ),
 }

@@ -109,10 +109,11 @@ class WindowClickXYAction(Action):
     name = "Клик в окне (по координатам)"
     icon = "🖱"
     param_labels = {
-        "window_var": "Переменная окна",
-        "x":          "X относительно окна",
-        "y":          "Y относительно окна",
-        "button":     "Кнопка",
+        "window_var":   "Переменная окна",
+        "x":            "X относительно окна",
+        "y":            "Y относительно окна",
+        "button":       "Кнопка",
+        "double_click": "Двойной клик",
     }
     param_options = {"button": ["left", "right", "middle"]}
 
@@ -122,7 +123,10 @@ class WindowClickXYAction(Action):
         y = int(self.params.get("y", 0))
         btn = self.params.get("button", "left")
         wnd.set_focus()
-        wnd.click_input(button=btn, coords=(x, y))
+        if self.params.get("double_click", False):
+            wnd.double_click_input(button=btn, coords=(x, y))
+        else:
+            wnd.click_input(button=btn, coords=(x, y))
 
 
 class WindowClickElementAction(Action):

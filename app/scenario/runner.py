@@ -174,6 +174,12 @@ class ScenarioRunner(QThread):
                 self.finished_error.emit("Остановлено")
                 return
 
+            # Динамическое включение пошагового режима из действия DebugPause
+            if self.context.get("_step_mode_active") and not self._step_mode:
+                self._step_mode = True
+                self._log("🔍 Пошаговый режим активирован")
+                self.awaiting_step.emit(i)  # сигнал UI: покажи кнопку Дальше
+
             # ── Отладка по шагам ─────────────────────────────────────
             if self._step_mode:
                 self._step_gate.clear()

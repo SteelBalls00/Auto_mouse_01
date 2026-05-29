@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
     QPushButton, QLabel, QTextEdit,
     QVBoxLayout, QHBoxLayout, QMessageBox,
-    QFileDialog, QSplitter, QApplication
+    QFileDialog, QSplitter, QApplication, QDialog
 )
 
 from app.actions.registry import ACTION_REGISTRY
@@ -20,6 +20,11 @@ from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
 from app.ui.scenario_manager import ScenarioManager
 from app.ui.theme import apply_theme
+from PyQt5.QtWidgets import QShortcut
+from PyQt5.QtGui import QKeySequence
+from app.ui.app_settings_dialog import (
+    AppSettingsDialog, load_hotkeys, _to_str, _to_qt
+)
 
 
 class MainWindow(QMainWindow):
@@ -44,10 +49,18 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
 
+        # Локальные хоткеи отладки
+        self._sc_next = QShortcut(QKeySequence("F8"), self)
+        self._sc_next.activated.connect(self._hotkey_step_next)
+
+        self._sc_stop = QShortcut(QKeySequence("F9"), self)
+        self._sc_stop.activated.connect(self._hotkey_stop)
+
         # Восстановление сохранённой темы
         self._settings = QSettings("AutoMouse", "RPA")
         dark = self._settings.value("dark_theme", False, type=bool)
         self.btn_theme.setChecked(dark)
+
         self._apply_theme(dark)
 
     # ── Построение UI ────────────────────────────────────────────────
@@ -132,6 +145,12 @@ class MainWindow(QMainWindow):
         self.btn_theme.setToolTip("Переключить светлую / тёмную тему")
         self.btn_theme.clicked.connect(self._toggle_theme)
 
+        btn_settings = QPushButton("⚙")
+        btn_settings.setToolTip("Настройки приложения")
+        btn_settings.clicked.connect(self._open_app_settings)
+        btn_settings.setFixedWidth(32)
+        # добавь в тот же layout, что и btn_theme
+
         self.btn_run.clicked.connect(self._run_scenario)
         self.btn_debug.clicked.connect(self._run_debug)
         self.btn_slow.clicked.connect(self._run_slow)
@@ -146,6 +165,7 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.btn_stop)
         run_row.addStretch(1)
         run_row.addWidget(self.btn_theme)
+        run_row.addWidget(btn_settings)
 
         right = QVBoxLayout()
         right.addWidget(QLabel("Параметры шага"))
@@ -181,6 +201,16 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
         self._setup_emergency_stop()
 
+    @pyqtSlot()
+    def _hotkey_step_next(self):
+        if self.btn_next.isVisible() and self.btn_next.isEnabled():
+            self._step_next()
+
+    @pyqtSlot()
+    def _hotkey_stop(self):
+        if self.btn_stop.isEnabled():
+            self._stop_scenario()
+
     def _new_scenario(self):
         # Если есть несохранённые шаги — переспрашиваем
         if self.actions:
@@ -204,21 +234,95 @@ class MainWindow(QMainWindow):
         self.log.append("📄 Новый сценарий")
 
     def _setup_emergency_stop(self):
-        """Глобальная горячая клавиша аварийной остановки."""
-        self._hotkey_ok = False
+        """Применить хоткеи из конфига."""
+        self._apply_hotkeys()
+
+    def _apply_hotkeys(self):
+        hk = load_hotkeys()
+
+        # ── 1. Глобальная аварийная — keyboard ───────────────────────
         try:
-            import keyboard
-            # Esc дважды подряд за 0.5 сек — чтобы не ловить случайные нажатия
-            keyboard.add_hotkey("ctrl+shift+q", self._emergency_stop_from_thread,
-                                trigger_on_release=False)
+            import keyboard as kb
+
+            # снять все старые глобальные хоткеи
+            for attr in ("_emergency_combo", "_step_next_combo", "_step_stop_combo"):
+                combo = getattr(self, attr, None)
+                if combo:
+                    try:
+                        kb.remove_hotkey(combo)
+                    except Exception:
+                        pass
+
+            # Аварийная остановка
+            self._emergency_combo = _to_str(hk["emergency_stop"])
+            kb.add_hotkey(
+                self._emergency_combo,
+                self._emergency_stop_from_thread,
+                trigger_on_release=False,
+            )
+
+            # Следующий шаг (глобальный)
+            self._step_next_combo = _to_str(hk["step_next"])
+            kb.add_hotkey(
+                self._step_next_combo,
+                self._global_step_next_from_thread,
+                trigger_on_release=False,
+            )
+
+            # Стоп (глобальный)
+            self._step_stop_combo = _to_str(hk["step_stop"])
+            kb.add_hotkey(
+                self._step_stop_combo,
+                self._global_stop_from_thread,
+                trigger_on_release=False,
+            )
+
             self._hotkey_ok = True
+
         except ImportError:
-            pass  # keyboard не установлен — работает только кнопка Стоп
+            self._hotkey_ok = False
+            self._emergency_combo = None
+            self._step_next_combo = None
+            self._step_stop_combo = None
+            # Фолбэк — локальные QShortcut (только при фокусе)
+            self._setup_local_shortcuts(hk)
+
+    def _setup_local_shortcuts(self, hk):
+        """QShortcut как запасной вариант если keyboard не установлен."""
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        for attr in ("_sc_next", "_sc_stop"):
+            old = getattr(self, attr, None)
+            if old is not None:
+                try:
+                    old.setParent(None)
+                    old.deleteLater()
+                except Exception:
+                    pass
+        self._sc_next = QShortcut(QKeySequence(_to_qt(hk["step_next"])), self)
+        self._sc_next.activated.connect(self._hotkey_step_next)
+        self._sc_stop = QShortcut(QKeySequence(_to_qt(hk["step_stop"])), self)
+        self._sc_stop.activated.connect(self._hotkey_stop)
+
+    def _open_app_settings(self):
+        dlg = AppSettingsDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            dlg.save_to_file()
+            self._apply_hotkeys()
+            self.log.append("⚙ Настройки обновлены, хоткеи применены")
 
     def _emergency_stop_from_thread(self):
         # keyboard вызывает из своего потока → пробрасываем в UI-поток
         from PyQt5.QtCore import QMetaObject, Qt
         QMetaObject.invokeMethod(self, "_emergency_stop", Qt.QueuedConnection)
+
+    def _global_step_next_from_thread(self):
+        from PyQt5.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self, "_hotkey_step_next", Qt.QueuedConnection)
+
+    def _global_stop_from_thread(self):
+        from PyQt5.QtCore import QMetaObject, Qt
+        QMetaObject.invokeMethod(self, "_hotkey_stop", Qt.QueuedConnection)
 
     @staticmethod
     def _noop():
@@ -784,8 +888,10 @@ class MainWindow(QMainWindow):
         self._runner.start()
 
     def _on_awaiting_step(self, idx):
-        """Пошаговый режим: runner ждёт разрешения на шаг idx."""
         self._highlight_step(idx)
+        # Показываем кнопку даже если запустили в обычном режиме
+        # (пошаговый мог включиться через действие DebugPause)
+        self.btn_next.setVisible(True)
         self.btn_next.setEnabled(True)
         if 0 <= idx < len(self.actions):
             title = self.actions[idx].title()
@@ -829,17 +935,25 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if getattr(self, "_hotkey_ok", False):
             try:
-                import keyboard
-                keyboard.remove_hotkey("ctrl+shift+q")
-            except Exception:
+                import keyboard as kb
+                for attr in ("_emergency_combo", "_step_next_combo", "_step_stop_combo"):
+                    combo = getattr(self, attr, None)
+                    if combo:
+                        try:
+                            kb.remove_hotkey(combo)
+                        except Exception:
+                            pass
+            except ImportError:
                 pass
-        if self._runner and self._runner.isRunning():
-            self._runner.stop()
-            self._runner.wait(2000)
-        event.accept()
 
     @pyqtSlot()
     def _emergency_stop(self):
         if self._runner and self._runner.isRunning():
             self._runner.stop()
-            self.log.append("🛑 АВАРИЙНАЯ ОСТАНОВКА (Ctrl+Shift+Q)")
+            try:
+                import pyautogui
+                pyautogui.moveTo(0, 0, duration=0)
+            except Exception:
+                pass
+            combo = (self._emergency_combo or "").upper().replace("+", "+")
+            self.log.append(f"🛑 АВАРИЙНАЯ ОСТАНОВКА ({combo})")

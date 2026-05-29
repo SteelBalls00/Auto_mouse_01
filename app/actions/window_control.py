@@ -2,6 +2,7 @@ import ctypes
 from ctypes import wintypes
 from app.actions.base import Action
 
+
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 # Константы ShowWindow
@@ -160,35 +161,57 @@ class WindowSendMessageAction(Action):
     param_labels = {
         "window_var": "Переменная окна",
         "title":      "ИЛИ заголовок окна",
-        "msg":        "Сообщение (число или имя)",
-        "wparam":     "wParam",
-        "lparam":     "lParam",
+        "msg":        "Сообщение",
+        "wparam":     "wParam (для произвольного)",
+        "lparam":     "lParam (для произвольного)",
         "post":       "PostMessage (иначе SendMessage)",
     }
     param_options = {
-        "msg": ["WM_CLOSE", "WM_QUIT", "WM_DESTROY", "WM_PAINT",
-                "WM_SYSCOMMAND", "произвольное"],
+        "msg": [
+            "WM_CLOSE", "WM_QUIT", "WM_DESTROY", "WM_PAINT",
+            "SC_MINIMIZE (свернуть)",
+            "SC_MAXIMIZE (развернуть)",
+            "SC_RESTORE (восстановить)",
+            "SC_CLOSE (закрыть как X)",
+            "SC_HOTKEY (вынести вперёд)",
+            "WM_SYSCOMMAND (свой wParam)",
+            "произвольное (число)",
+        ],
     }
 
-    # Карта частых сообщений
-    MSG_MAP = {
-        "WM_CLOSE":     0x0010,
-        "WM_QUIT":      0x0012,
-        "WM_DESTROY":   0x0002,
-        "WM_PAINT":     0x000F,
-        "WM_SYSCOMMAND": 0x0112,
+    # Карта простых сообщений: msg -> (wm_id, wparam)
+    PRESETS = {
+        "WM_CLOSE":              (0x0010, 0),
+        "WM_QUIT":               (0x0012, 0),
+        "WM_DESTROY":            (0x0002, 0),
+        "WM_PAINT":              (0x000F, 0),
+        "SC_MINIMIZE (свернуть)":      (0x0112, 0xF020),
+        "SC_MAXIMIZE (развернуть)":    (0x0112, 0xF030),
+        "SC_RESTORE (восстановить)":   (0x0112, 0xF120),
+        "SC_CLOSE (закрыть как X)":    (0x0112, 0xF060),
+        "SC_HOTKEY (вынести вперёд)":  (0x0112, 0xF150),
     }
 
     def execute(self, context):
         hwnd = _resolve_hwnd(self, context)
 
         msg_raw = (self.params.get("msg") or "").strip()
-        if msg_raw in self.MSG_MAP:
-            msg = self.MSG_MAP[msg_raw]
+
+        if msg_raw in self.PRESETS:
+            msg, wparam = self.PRESETS[msg_raw]
+            lparam = 0
+        elif msg_raw == "WM_SYSCOMMAND (свой wParam)":
+            msg = 0x0112
+            try:
+                wparam = int(str(self.params.get("wparam", 0)), 0)
+            except (ValueError, TypeError):
+                wparam = 0
+            try:
+                lparam = int(str(self.params.get("lparam", 0)), 0)
+            except (ValueError, TypeError):
+                lparam = 0
         else:
-            # произвольное — берём wparam/lparam, а сам msg ожидаем числом в title? нет.
-            # Если выбрано "произвольное" — msg должен быть числом, но в комбобоксе строка.
-            # Поддержим: если msg_raw число — используем его.
+            # «произвольное (число)» — в поле msg должно быть число
             try:
                 msg = int(msg_raw, 0)
             except (ValueError, TypeError):
@@ -196,15 +219,14 @@ class WindowSendMessageAction(Action):
                     "Для произвольного сообщения впишите число в поле «Сообщение» "
                     "(например 0x0010 или 16)"
                 )
-
-        try:
-            wparam = int(str(self.params.get("wparam", 0)), 0)
-        except (ValueError, TypeError):
-            wparam = 0
-        try:
-            lparam = int(str(self.params.get("lparam", 0)), 0)
-        except (ValueError, TypeError):
-            lparam = 0
+            try:
+                wparam = int(str(self.params.get("wparam", 0)), 0)
+            except (ValueError, TypeError):
+                wparam = 0
+            try:
+                lparam = int(str(self.params.get("lparam", 0)), 0)
+            except (ValueError, TypeError):
+                lparam = 0
 
         if self.params.get("post", True):
             user32.PostMessageW(hwnd, msg, wparam, lparam)
