@@ -18,6 +18,7 @@ from app.ui.action_editor import ActionEditor
 from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
+from app.ui.var_inspector import VariableInspector
 from app.ui.scenario_manager import ScenarioManager
 from app.ui.theme import apply_theme
 from PyQt5.QtWidgets import QShortcut
@@ -179,9 +180,20 @@ class MainWindow(QMainWindow):
 
         # ── Третья панель: дерево переменных ──────────────────────────
         self.vars_tree = VariablesTree()
+        self.vars_tree.set_context_provider(self._current_context)
+
+        self.btn_inspect = QPushButton("🔍")
+        self.btn_inspect.setToolTip("Открыть инспектор переменных")
+        self.btn_inspect.setFixedWidth(32)
+        self.btn_inspect.clicked.connect(self._open_var_inspector)
+
+        vars_header = QHBoxLayout()
+        vars_header.addWidget(QLabel("Переменные результатов"))
+        vars_header.addStretch(1)
+        vars_header.addWidget(self.btn_inspect)
 
         vars_layout = QVBoxLayout()
-        vars_layout.addWidget(QLabel("Переменные результатов"))
+        vars_layout.addLayout(vars_header)
         vars_layout.addWidget(self.vars_tree)
         vars_w = QWidget()
         vars_w.setLayout(vars_layout)
@@ -815,6 +827,23 @@ class MainWindow(QMainWindow):
 
     def _update_title(self, name):
         self.setWindowTitle(f"Python RPA — {name}")
+
+    # ── Переменные ───────────────────────────────────────────────────
+    def _current_context(self):
+        """Живой контекст последнего/текущего прогона (или пусто)."""
+        if self._runner is not None:
+            return getattr(self._runner, "context", {}) or {}
+        return {}
+
+    def _open_var_inspector(self):
+        dlg = getattr(self, "_var_inspector", None)
+        if dlg is None:
+            dlg = VariableInspector(self._current_context, self)
+            self._var_inspector = dlg
+        dlg.reload()
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _import_actions(self):
         """Импорт всех шагов из другого сценария — вставка после выделенного шага."""

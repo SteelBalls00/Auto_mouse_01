@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, QMimeData
-from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem, QAbstractItemView
+from PyQt5.QtCore import Qt, QMimeData, QEvent
+from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem, QAbstractItemView, QToolTip
 
 
 _DRAG_ROLE = Qt.UserRole
@@ -12,6 +12,32 @@ class VariablesTree(QTreeWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragOnly)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._context_provider = None
+
+    def set_context_provider(self, provider):
+        """provider() → словарь живого контекста (для всплывающих подсказок)."""
+        self._context_provider = provider
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.ToolTip and self._context_provider:
+            item = self.itemAt(event.pos())
+            drag = item.data(0, _DRAG_ROLE) if item else None
+            if drag:
+                from app.ui.var_inspector import resolve_path, format_compact
+                try:
+                    ctx = self._context_provider() or {}
+                    found, value = resolve_path(ctx, drag)
+                except Exception:
+                    found = False
+                if found:
+                    QToolTip.showText(event.globalPos(), format_compact(value), self)
+                    return True
+                else:
+                    QToolTip.showText(event.globalPos(),
+                                      "нет значения (сценарий не запускался "
+                                      "или переменная ещё не заполнена)", self)
+                    return True
+        return super().viewportEvent(event)
 
     def mimeData(self, items):
         m = QMimeData()
