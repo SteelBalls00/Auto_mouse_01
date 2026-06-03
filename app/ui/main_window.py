@@ -88,38 +88,33 @@ class MainWindow(QMainWindow):
         self.list.stepMoved.connect(self._on_step_moved)
         self.list.contextRequested.connect(self._show_step_menu)
 
-        btn_del = QPushButton("🗑 Удалить")
-        btn_up = QPushButton("⬆ Вверх")
-        btn_down = QPushButton("⬇ Вниз")
-        btn_new = QPushButton("📄 Новый сценарий")
-        btn_save = QPushButton("💾 Сохранить")
-        btn_save_as = QPushButton("💾 Сохранить как…")
-        btn_load = QPushButton("📂 Открыть")
-        btn_import = QPushButton("📥 Импорт из сценария…")
+        self.btn_del = QPushButton("🗑 Удалить")
+        self.btn_up = QPushButton("⬆ Вверх")
+        self.btn_down = QPushButton("⬇ Вниз")
+        self.btn_new = QPushButton("📄 Новый")
+        self.btn_save = QPushButton("💾 Сохранить")
+        self.btn_save_as = QPushButton("💾 Как…")
+        self.btn_load = QPushButton("📂 Открыть")
+        self.btn_import = QPushButton("📥 Импорт")
+        self.btn_migrate = QPushButton("🔄 Обновить шаги")
+        self.btn_migrate.setToolTip(
+            "Добавить во все шаги недостающие новые параметры "
+            "(значения существующих сохраняются)"
+        )
 
-        btn_del.clicked.connect(self._delete_action)
-        btn_up.clicked.connect(self._move_up)
-        btn_down.clicked.connect(self._move_down)
-        btn_new.clicked.connect(self._new_scenario)
-        btn_save.clicked.connect(self._save_scenario)
-        btn_save_as.clicked.connect(self._save_scenario_as)
-        btn_load.clicked.connect(self._load_scenario)
-        btn_import.clicked.connect(self._import_actions)
-
-        move_row = QHBoxLayout()
-        move_row.addWidget(btn_up)
-        move_row.addWidget(btn_down)
+        self.btn_del.clicked.connect(self._delete_action)
+        self.btn_up.clicked.connect(self._move_up)
+        self.btn_down.clicked.connect(self._move_down)
+        self.btn_new.clicked.connect(self._new_scenario)
+        self.btn_save.clicked.connect(self._save_scenario)
+        self.btn_save_as.clicked.connect(self._save_scenario_as)
+        self.btn_load.clicked.connect(self._load_scenario)
+        self.btn_import.clicked.connect(self._import_actions)
+        self.btn_migrate.clicked.connect(self._migrate_steps)
 
         left = QVBoxLayout()
         left.addWidget(QLabel("Шаги сценария"))
         left.addWidget(self.list)
-        left.addWidget(btn_del)
-        left.addLayout(move_row)
-        left.addWidget(btn_new)
-        left.addWidget(btn_save)
-        left.addWidget(btn_save_as)
-        left.addWidget(btn_load)
-        left.addWidget(btn_import)
 
         left_w = QWidget()
         left_w.setLayout(left)
@@ -210,7 +205,31 @@ class MainWindow(QMainWindow):
         splitter.addWidget(vars_w)
         splitter.setSizes([140, 250, 240, 460, 180])
 
-        self.setCentralWidget(splitter)
+        # ── Верхняя панель кнопок (компактная) ────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(4, 2, 4, 2)
+        toolbar.setSpacing(4)
+        for b in (self.btn_new, self.btn_load, self.btn_save,
+                  self.btn_save_as, self.btn_import):
+            toolbar.addWidget(b)
+        toolbar.addSpacing(14)
+        for b in (self.btn_del, self.btn_up, self.btn_down):
+            toolbar.addWidget(b)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.btn_migrate)
+
+        toolbar_w = QWidget()
+        toolbar_w.setLayout(toolbar)
+        toolbar_w.setMaximumHeight(40)
+
+        central = QWidget()
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(toolbar_w)
+        root.addWidget(splitter, 1)
+
+        self.setCentralWidget(central)
         self._setup_emergency_stop()
 
     @pyqtSlot()
@@ -222,6 +241,59 @@ class MainWindow(QMainWindow):
     def _hotkey_stop(self):
         if self.btn_stop.isEnabled():
             self._stop_scenario()
+
+    def _migrate_steps(self):
+        """Дополнить все шаги недостающими параметрами из актуальных определений
+        действий. Значения существующих параметров сохраняются; порядок полей
+        приводится к порядку из реестра (новые поля встают на свои места)."""
+        from app.actions.registry import ACTION_REGISTRY
+
+        if not self.actions:
+            QMessageBox.information(self, "Обновление шагов", "Шагов нет.")
+            return
+
+        # зафиксировать правки текущего шага
+        if self.current_index is not None and 0 <= self.current_index < len(self.actions):
+            self.editor.apply()
+
+        added_total = 0
+        affected = 0
+        for m in self.actions:
+            entry = ACTION_REGISTRY.get(m.action_type)
+            if not entry:
+                continue
+            defaults = entry[1]
+            new_params = {}
+            added = 0
+            # сначала — ключи в порядке дефолтов (существующие значения сохраняем)
+            for k, v in defaults.items():
+                if k in m.params:
+                    new_params[k] = m.params[k]
+                else:
+                    new_params[k] = copy.deepcopy(v)
+                    added += 1
+            # затем — «лишние» ключи, которых нет в дефолтах (не теряем их)
+            for k, v in m.params.items():
+                if k not in new_params:
+                    new_params[k] = v
+            m.params = new_params
+            if added:
+                affected += 1
+                added_total += added
+
+        self._refresh_list()
+        # перезагрузить редактор текущего шага, чтобы новые поля сразу появились
+        row = self.list.currentRow()
+        if 0 <= row < len(self.actions):
+            self.current_index = None   # форсируем повторную загрузку
+            self._on_select(row)
+
+        QMessageBox.information(
+            self, "Обновление шагов",
+            f"Обработано шагов: {len(self.actions)}\n"
+            f"Добавлено недостающих параметров: {added_total}\n"
+            f"Затронуто шагов: {affected}"
+        )
 
     def _new_scenario(self):
         # Если есть несохранённые шаги — переспрашиваем

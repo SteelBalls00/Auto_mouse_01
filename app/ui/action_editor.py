@@ -162,6 +162,15 @@ class ActionEditor(QWidget):
             if isinstance(w, QLineEdit):
                 self._check_lineedit_vars(w)
 
+            # Кнопка перевода мыши — сразу под координатой Y у шага клика
+            if model.action_type == "window_click_xy" and key == "y":
+                btn_move = QPushButton("🎯 Перевести мышь по координатам")
+                btn_move.setToolTip(
+                    "Найти окно и навести курсор на эти X/Y (для проверки точки)"
+                )
+                btn_move.clicked.connect(self._move_mouse_to_coords)
+                self._layout.addRow(btn_move)
+
         # ── Кнопки автозаполнения колонок ─────────────────────────────
         if model.action_type in ("sql", "sql_many") and \
                 "query" in self.editors and "columns" in self.editors:
@@ -174,6 +183,61 @@ class ActionEditor(QWidget):
             btn = QPushButton("↻ Колонки из источника (SQL)")
             btn.clicked.connect(self._autofill_loop_columns)
             self._layout.addRow(btn)
+
+    # ── Перевод мыши по координатам (для проверки точки клика) ────────
+    def _move_mouse_to_coords(self):
+        from PyQt5.QtWidgets import QMessageBox
+
+        xw = self.editors.get("x")
+        yw = self.editors.get("y")
+        wv = self.editors.get("window_var")
+        if not (xw and yw):
+            return
+        try:
+            x = int(xw[0].value())
+            y = int(yw[0].value())
+        except Exception:
+            QMessageBox.warning(self, "Координаты", "Некорректные значения X/Y.")
+            return
+
+        window_var = (wv[0].text().strip() if wv else "")
+        if not window_var:
+            QMessageBox.information(
+                self, "Окно", "Не задана «Переменная окна» — некуда переводить мышь."
+            )
+            return
+
+        # Ищем шаг «Найти окно», который задаёт эту переменную
+        fw = None
+        for m in self._actions:
+            if m.action_type == "find_window" and \
+                    (m.params.get("var_name") or "").strip() == window_var:
+                fw = m
+                break
+        if fw is None:
+            QMessageBox.information(
+                self, "Окно",
+                f"В сценарии нет шага «Найти окно» с переменной «{window_var}».\n"
+                "Координаты считаются относительно этого окна — без него навести "
+                "мышь не получится."
+            )
+            return
+
+        try:
+            from app.actions.window import FindWindowAction, _reattach_window
+            import pyautogui
+            ctx = {}
+            FindWindowAction(dict(fw.params)).execute(ctx)  # найдёт и сохранит _search
+            wnd = _reattach_window(ctx, window_var)
+            rect = wnd.rectangle()
+            sx, sy = int(rect.left) + x, int(rect.top) + y
+            pyautogui.moveTo(sx, sy, duration=0.3)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Не удалось",
+                f"Окно не найдено или ошибка перемещения мыши:\n{e}\n\n"
+                "Убедитесь, что целевое окно открыто."
+            )
 
     # ── Автозаполнение колонок ────────────────────────────────────────
     def _autofill_columns_from_select(self):
