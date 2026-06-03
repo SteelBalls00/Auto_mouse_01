@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
     QPushButton, QLabel, QTextEdit,
     QVBoxLayout, QHBoxLayout, QMessageBox,
-    QFileDialog, QSplitter, QApplication, QDialog
+    QFileDialog, QSplitter, QApplication, QDialog, QComboBox
 )
 
 from app.actions.registry import ACTION_REGISTRY
@@ -19,7 +19,6 @@ from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
 from app.ui.var_inspector import VariableInspector
-from app.ui.scenario_manager import ScenarioManager
 from app.ui.theme import apply_theme
 from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtGui import QKeySequence
@@ -193,17 +192,12 @@ class MainWindow(QMainWindow):
         vars_w = QWidget()
         vars_w.setLayout(vars_layout)
 
-        # Менеджер сценариев — крайняя левая панель
-        self.scenario_mgr = ScenarioManager()
-        self.scenario_mgr.openRequested.connect(self._open_scenario_path)
-
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self.scenario_mgr)
         splitter.addWidget(palette_w)
         splitter.addWidget(left_w)
         splitter.addWidget(right_w)
         splitter.addWidget(vars_w)
-        splitter.setSizes([140, 250, 240, 460, 180])
+        splitter.setSizes([250, 260, 480, 200])
 
         # ── Верхняя панель кнопок (компактная) ────────────────────────
         toolbar = QHBoxLayout()
@@ -216,6 +210,14 @@ class MainWindow(QMainWindow):
         for b in (self.btn_del, self.btn_up, self.btn_down):
             toolbar.addWidget(b)
         toolbar.addStretch(1)
+
+        self.recent_combo = QComboBox()
+        self.recent_combo.setMinimumWidth(220)
+        self.recent_combo.setToolTip("Недавние и избранные сценарии — выбрать, чтобы открыть")
+        self.recent_combo.activated.connect(self._on_recent_combo)
+        self._rebuild_recent_combo()
+        toolbar.addWidget(self.recent_combo)
+
         toolbar.addWidget(self.btn_migrate)
 
         toolbar_w = QWidget()
@@ -853,7 +855,7 @@ class MainWindow(QMainWindow):
 
         self._scenario_path = scenario_path
         self._update_title(name)
-        self.scenario_mgr.note_opened(scenario_path)
+        self._note_recent(scenario_path)
         self.log.append(f"💾 Сохранено: {scenario_path}")
 
     def _save_scenario_as(self):
@@ -888,7 +890,7 @@ class MainWindow(QMainWindow):
 
         self._scenario_path = scenario_path
         self._update_title(name)
-        self.scenario_mgr.note_opened(scenario_path)
+        self._note_recent(scenario_path)
         self.log.append(f"💾 Сохранено: {scenario_path}")
 
     def _load_scenario(self):
@@ -898,8 +900,59 @@ class MainWindow(QMainWindow):
         if path:
             self._open_scenario_path(path)
 
+    # ── Недавние сценарии (выпадающий список в тулбаре) ──────────────
+    def _scenario_label(self, path):
+        """Имя сценария для списка — имя его папки (или файла)."""
+        folder = os.path.basename(os.path.dirname(path))
+        return folder or os.path.splitext(os.path.basename(path))[0]
+
+    def _rebuild_recent_combo(self):
+        from app.scenario import recent
+        self.recent_combo.blockSignals(True)
+        self.recent_combo.clear()
+        self.recent_combo.addItem("📂 Недавние сценарии…", "")
+
+        seen = set()
+        count = 0
+        # сначала избранные (со звёздочкой), потом недавние — всего до 25
+        for p in recent.get_favorites():
+            ap = os.path.abspath(p)
+            if ap in seen:
+                continue
+            seen.add(ap)
+            self.recent_combo.addItem("★ " + self._scenario_label(p), p)
+            count += 1
+            if count >= 25:
+                break
+        if count < 25:
+            for p in recent.get_recent():
+                ap = os.path.abspath(p)
+                if ap in seen:
+                    continue
+                seen.add(ap)
+                self.recent_combo.addItem(self._scenario_label(p), p)
+                count += 1
+                if count >= 25:
+                    break
+
+        self.recent_combo.setCurrentIndex(0)
+        self.recent_combo.blockSignals(False)
+
+    def _on_recent_combo(self, index):
+        if index <= 0:
+            return
+        path = self.recent_combo.itemData(index)
+        self.recent_combo.setCurrentIndex(0)   # ведёт себя как меню
+        if path:
+            self._open_scenario_path(path)
+
+    def _note_recent(self, path):
+        from app.scenario import recent
+        recent.add_recent(path)
+        self._rebuild_recent_combo()
+
     def _open_scenario_path(self, path):
-        """Открыть сценарий по конкретному пути (из диалога или менеджера)."""
+        """Открыть сценарий по конкретному пути (из диалога или списка недавних)."""
         try:
             name, actions = load_scenario(path)
         except Exception as e:
@@ -908,7 +961,7 @@ class MainWindow(QMainWindow):
             try:
                 from app.scenario import recent
                 recent.remove_recent(path)
-                self.scenario_mgr.refresh()
+                self._rebuild_recent_combo()
             except Exception:
                 pass
             return
@@ -921,7 +974,7 @@ class MainWindow(QMainWindow):
         self.log.append(f"📂 Загружен: {name}  ({path})")
 
         # Запоминаем в недавних
-        self.scenario_mgr.note_opened(path)
+        self._note_recent(path)
 
         if self.actions:
             self.list.setCurrentRow(0)
