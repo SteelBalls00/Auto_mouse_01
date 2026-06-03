@@ -1,3 +1,5 @@
+import os
+
 from app.actions.base import Action
 
 
@@ -110,12 +112,20 @@ class WindowClickXYAction(Action):
     icon = "🖱"
     param_labels = {
         "window_var":   "Переменная окна",
+        "description":  "Описание",
         "x":            "X относительно окна",
         "y":            "Y относительно окна",
         "button":       "Кнопка",
         "double_click": "Двойной клик",
+        "preview":         "Последняя видимая область",
+        "show_crosshair":  "Показывать точку нажатия",
     }
     param_options = {"button": ["left", "right", "middle"]}
+    param_widgets = {"preview": "click_preview", "show_crosshair": "hidden"}
+    file_params = ("preview",)
+
+    # радиус захватываемой области вокруг точки клика (px)
+    PREVIEW_RADIUS = 300
 
     def execute(self, context):
         wnd = _reattach_window(context, (self.params.get("window_var") or "").strip())
@@ -127,6 +137,64 @@ class WindowClickXYAction(Action):
             wnd.double_click_input(button=btn, coords=(x, y))
         else:
             wnd.click_input(button=btn, coords=(x, y))
+
+        # Снимок области вокруг клика — строго best-effort, не должен ломать клик
+        try:
+            self._capture_preview(wnd, x, y, context)
+        except Exception as e:
+            log = context.get("_log")
+            if log:
+                log(f"превью не снято: {e}")
+
+    def _capture_preview(self, wnd, x, y, context):
+        preview = (self.params.get("preview") or "").strip()
+        if not preview:
+            return  # путь не задан (сценарий не сохранён) — снимок некуда класть
+
+        # Абсолютные экранные координаты точки клика
+        rect = wnd.rectangle()
+        sx = int(rect.left) + x
+        sy = int(rect.top) + y
+        r = self.PREVIEW_RADIUS
+
+        from PIL import ImageGrab, Image
+        try:
+            shot = ImageGrab.grab(all_screens=True)
+        except TypeError:
+            shot = ImageGrab.grab()   # старый Pillow без all_screens
+
+        # Начало координат полного снимка = левый/верхний край виртуального экрана.
+        # Для нескольких мониторов он может быть отрицательным.
+        origin_x, origin_y = 0, 0
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            origin_x = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+            origin_y = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+        except Exception:
+            pass
+
+        # Холст фиксированного размера, точка клика — точно в центре
+        size = r * 2
+        canvas = Image.new("RGB", (size, size), (32, 34, 40))
+        px = sx - origin_x          # координаты точки внутри полного снимка
+        py = sy - origin_y
+        left = px - r
+        top = py - r
+        sw, sh = shot.size
+        src_l = max(0, left)
+        src_t = max(0, top)
+        src_r = min(sw, left + size)
+        src_b = min(sh, top + size)
+        if src_r > src_l and src_b > src_t:
+            crop = shot.crop((src_l, src_t, src_r, src_b))
+            canvas.paste(crop, (src_l - left, src_t - top))
+
+        os.makedirs(os.path.dirname(preview), exist_ok=True)
+        canvas.save(preview)
+        log = context.get("_log")
+        if log:
+            log(f"снимок области сохранён ({size}×{size})")
 
 
 class WindowClickElementAction(Action):

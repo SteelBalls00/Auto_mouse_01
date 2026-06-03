@@ -550,6 +550,7 @@ class MainWindow(QMainWindow):
             from app.models.action_model import collect_available_vars
             known = collect_available_vars(self.actions, row)
 
+            self._ensure_preview_path(self.actions[row])
             self.editor.set_actions(self.actions)
             self.editor.load_action(self.actions[row])  # создаём поля
             self.editor.set_known_vars(known)  # потом красим
@@ -557,6 +558,47 @@ class MainWindow(QMainWindow):
         else:
             self.editor.load_action(None)
             self.current_index = None
+
+    def _ensure_preview_path(self, model):
+        """Для шага клика задать стабильный путь снимка в assets/ и создать
+        заглушку, если файла ещё нет (сценарий должен быть сохранён)."""
+        if model.action_type != "window_click_xy":
+            return
+        if not self._scenario_path:
+            return  # сценарий ещё не сохранён — снимок негде хранить
+
+        scenario_dir = os.path.dirname(self._scenario_path)
+        assets = os.path.join(scenario_dir, "assets")
+
+        preview = model.params.get("preview")
+        if not preview:
+            import uuid
+            preview = os.path.join(assets, f"clickpreview_{uuid.uuid4().hex[:8]}.png")
+        elif not os.path.isabs(preview):
+            # относительный assets/... → абсолютный для редактора и рантайма
+            preview = os.path.join(scenario_dir, preview.replace("/", os.sep))
+        model.params["preview"] = preview
+
+        self._make_placeholder_preview(preview)
+
+    def _make_placeholder_preview(self, path):
+        """Создать картинку-заглушку, если файла ещё нет."""
+        try:
+            if not path or os.path.isfile(path):
+                return
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            from PIL import Image, ImageDraw
+            size = 600
+            img = Image.new("RGB", (size, size), (38, 40, 46))
+            d = ImageDraw.Draw(img)
+            lines = ["Снимок ещё не сделан", "выполните этот шаг"]
+            y = size // 2 - 24
+            for ln in lines:
+                d.text((size // 2 - len(ln) * 4, y), ln, fill=(150, 154, 162))
+                y += 24
+            img.save(path)
+        except Exception:
+            pass
 
     # ── Добавление / удаление ────────────────────────────────────────
     def _add_action_by_type(self, action_type):

@@ -50,6 +50,17 @@ class ActionModel:
         if self.action_type == "repeat_start":
             return f"ПОВТОРИТЬ {self.params.get('times', '?')} раз"
 
+        if self.action_type == "window_click_xy":
+            wv = (self.params.get("window_var") or "").strip()
+            desc = (self.params.get("description") or "").strip()
+            parts = []
+            if wv:
+                parts.append(wv)
+            if desc:
+                parts.append(desc)
+            tail = (" — " + ": ".join(parts)) if parts else ""
+            return cls.name + tail
+
         if self.action_type in (
                 "else", "end_if", "end_for", "end_while",
                 "break", "continue", "end_repeat", "catch", "end_try",

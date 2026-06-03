@@ -47,24 +47,37 @@ def save_scenario(parent_folder, name, actions):
 
         for key in file_keys:
             value = new_params.get(key)
-            if not _is_external_path(value):
+            if not isinstance(value, str) or not value.strip():
+                continue
+
+            # 0) Уже относительный assets/... — оставляем как есть
+            norm = value.replace("\\", "/")
+            if norm.startswith("assets/"):
+                used_names.add(os.path.basename(norm))
+                new_params[key] = norm
                 continue
 
             value_abs = os.path.normcase(os.path.abspath(value))
 
-            # 1) Файл УЖЕ лежит в assets_dir этого сценария — не копировать
+            # 1) Абсолютный путь внутри assets этого сценария — делаем
+            #    относительным ВСЕГДА, даже если файла пока нет (напр. превью
+            #    ещё не снято). Это держит сценарий переносимым.
             if value_abs.startswith(assets_dir_norm + os.sep):
                 fname = os.path.basename(value)
                 used_names.add(fname)
                 new_params[key] = f"assets/{fname}"
                 continue
 
-            # 2) Этот же исходный файл уже был обработан в этом сохранении
+            # 2) Внешний файл — копируем только если он реально существует
+            if not _is_external_path(value):
+                continue
+
+            # 3) Этот же исходный файл уже обработан в этом сохранении
             if value_abs in src_to_name:
                 new_params[key] = f"assets/{src_to_name[value_abs]}"
                 continue
 
-            # 3) Новый внешний файл — копируем, подбираем уникальное имя
+            # 4) Новый внешний файл — копируем, подбираем уникальное имя
             base = os.path.basename(value)
             target_name = base
             i = 1

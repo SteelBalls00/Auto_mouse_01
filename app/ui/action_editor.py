@@ -8,6 +8,7 @@ from app.actions.registry import ACTION_REGISTRY
 from app.actions.sql_utils import parse_select_columns
 from app.ui.var_highlighter import VarHighlighter
 from app.ui.code_highlighter import CodeHighlighter
+from app.ui.click_preview import ClickPreviewWidget
 
 
 class ColorPickerButton(QPushButton):
@@ -83,6 +84,21 @@ class ActionEditor(QWidget):
 
         for key, value in model.params.items():
             label_text = labels.get(key, key)
+
+            if widgets.get(key) == "hidden":
+                # параметр редактируется через другой виджет (см. click_preview)
+                continue
+
+            if widgets.get(key) == "click_preview":
+                # ── Превью области клика + галка перекрестия ───────────
+                w = ClickPreviewWidget(
+                    image_path=str(value or ""),
+                    show_crosshair=bool(model.params.get("show_crosshair", True)),
+                )
+                self._layout.addRow(QLabel(label_text), w)
+                # галка внутри виджета сохраняется в show_crosshair
+                self.editors["show_crosshair"] = (w, bool)
+                continue
 
             if widgets.get(key) == "color":
                 # ── Выбор цвета через палитру ─────────────────────────
@@ -239,7 +255,9 @@ class ActionEditor(QWidget):
             return
 
         for key, (w, orig_type) in self.editors.items():
-            if isinstance(w, ColorPickerButton):
+            if isinstance(w, ClickPreviewWidget):
+                self.model.params[key] = w.value()
+            elif isinstance(w, ColorPickerButton):
                 self.model.params[key] = w.value()
             elif isinstance(w, QPlainTextEdit):
                 self.model.params[key] = w.toPlainText()

@@ -167,7 +167,8 @@ ACTION_REGISTRY = {
     ),
     "window_click_xy": (
         WindowClickXYAction,
-        {"window_var": "", "x": 0, "y": 0, "button": "left", "double_click": False}
+        {"window_var": "", "description": "", "x": 0, "y": 0, "button": "left",
+         "double_click": False, "show_crosshair": True, "preview": ""}
     ),
     "window_click_element": (
         WindowClickElementAction,
