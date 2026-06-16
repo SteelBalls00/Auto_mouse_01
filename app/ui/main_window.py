@@ -19,6 +19,7 @@ from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
 from app.ui.var_inspector import VariableInspector
+from app.ui import colors_store
 from app.ui.theme import apply_theme
 from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtGui import QKeySequence
@@ -395,7 +396,9 @@ class MainWindow(QMainWindow):
         if dlg.exec_() == QDialog.Accepted:
             dlg.save_to_file()
             self._apply_hotkeys()
-            self.log.append("⚙ Настройки обновлены, хоткеи применены")
+            colors_store.reload()
+            self._refresh_list()
+            self.log.append("⚙ Настройки обновлены (хоткеи и цвета применены)")
 
     def _emergency_stop_from_thread(self):
         # keyboard вызывает из своего потока → пробрасываем в UI-поток
@@ -531,43 +534,36 @@ class MainWindow(QMainWindow):
             self.list.setCurrentRow(len(self.actions) - 1)
         self.vars_tree.rebuild(self.actions)
 
-    # Светлые подложки управляющих блоков (текст на них всегда тёмный)
-    CONTROL_BG = {
-        "if_start": "#dbeafe", "else": "#fed7aa", "end_if": "#e5e7eb",
-        "for_each_start": "#e9d5ff", "end_for": "#ddd6fe",
-        "while_start": "#fef3c7", "end_while": "#fde68a",
-        "break": "#fecaca", "continue": "#fecaca",
-        "repeat_start": "#e9d5ff", "end_repeat": "#e9d5ff",
-        "try_start": "#fce7f3", "catch": "#fbcfe8", "end_try": "#f9a8d4",
-    }
-
     def _style_item(self, item, model, highlighted=False):
-        """Единая окраска строки: фон + контрастный текст (для светлой и тёмной темы)."""
+        """Единая окраска строки: фон + контрастный текст (светлая и тёмная тема).
+        Цвет берётся из пользовательских настроек (действие→группа), иначе из
+        встроенных дефолтов управляющих блоков."""
         t = model.action_type
 
-        # ── Фон ───────────────────────────────────────────────────────
         if highlighted:
-            item.setBackground(QColor("#86efac"))      # выполняемый шаг — зелёный
+            bg = QColor("#86efac")               # выполняемый шаг — зелёный
         elif t == "separator":
-            col = QColor(model.params.get("color") or "#fde68a")
-            item.setBackground(col if col.isValid() else QColor("#fde68a"))
+            bg = QColor(model.params.get("color") or "#fde68a")
+            if not bg.isValid():
+                bg = QColor("#fde68a")
         else:
-            bg = self.CONTROL_BG.get(t)
-            item.setBackground(QColor(bg) if bg else QBrush())  # пусто → цвет темы
+            eff = colors_store.resolve(t)
+            bg = QColor(eff) if eff else None
+            if bg is not None and not bg.isValid():
+                bg = None
 
-        # ── Текст ─────────────────────────────────────────────────────
+        # ── Фон ───────────────────────────────────────────────────────
+        item.setBackground(bg if bg is not None else QBrush())
+
+        # ── Текст (контраст по яркости фона) ──────────────────────────
         if not model.enabled:
             item.setForeground(QColor("#9ca3af"))
-        elif highlighted:
-            item.setForeground(QColor("#1f2937"))
-        elif t == "separator":
-            col = QColor(model.params.get("color") or "#fde68a")
-            light = col.lightness() if col.isValid() else 255
-            item.setForeground(QColor("#1f2937") if light > 140 else QColor("#f9fafb"))
-        elif self.CONTROL_BG.get(t):
-            item.setForeground(QColor("#1f2937"))      # тёмный текст на пастели
+        elif bg is not None:
+            item.setForeground(
+                QColor("#1f2937") if bg.lightness() > 140 else QColor("#f9fafb")
+            )
         else:
-            item.setForeground(QBrush())               # обычный шаг → цвет темы
+            item.setForeground(QBrush())          # обычный шаг → цвет темы
 
     def _highlight_step(self, index):
         """Подсветить текущий выполняемый шаг зелёным, остальные — вернуть в норму."""

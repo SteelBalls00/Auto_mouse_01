@@ -1,4 +1,5 @@
 from PyQt5.QtCore import Qt, QMimeData, QEvent
+from PyQt5.QtGui import QColor, QBrush
 from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem, QAbstractItemView, QToolTip
 
 
@@ -60,9 +61,26 @@ class VariablesTree(QTreeWidget):
             self._add_node(item, child)
         return item
 
+    def _color_node(self, item, hexcolor):
+        """Рекурсивно красит узел и потомков цветом действия (с контрастным текстом)."""
+        if not hexcolor:
+            return
+        c = QColor(hexcolor)
+        if not c.isValid():
+            return
+        fg = QColor("#1f2937") if c.lightness() > 140 else QColor("#f9fafb")
+        stack = [item]
+        while stack:
+            it = stack.pop()
+            it.setBackground(0, QBrush(c))
+            it.setForeground(0, QBrush(fg))
+            for k in range(it.childCount()):
+                stack.append(it.child(k))
+
     def rebuild(self, actions):
         self.clear()
         from app.actions.registry import ACTION_REGISTRY
+        from app.ui import colors_store
 
         for i, model in enumerate(actions):
             cls    = ACTION_REGISTRY[model.action_type][0]
@@ -74,6 +92,8 @@ class VariablesTree(QTreeWidget):
             wrapped["label"] = f"{i + 1}. {node.get('label', '')}"
             top = self._add_node(self.invisibleRootItem(), wrapped)
             top.setExpanded(True)
+            # Цвет — как у соответствующего действия в списке шагов
+            self._color_node(top, colors_store.resolve(model.action_type))
             # Также раскрыть подузел current если есть
             for k in range(top.childCount()):
                 child = top.child(k)
