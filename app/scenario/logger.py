@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 import re
 from datetime import datetime
@@ -33,7 +34,13 @@ def setup_run_logger(scenario_name, project_root):
     for h in list(logger.handlers):
         logger.removeHandler(h)
 
-    handler = logging.FileHandler(log_path, encoding="utf-8")
+    # Ротация по размеру: один прогон не раздувает файл бесконечно
+    # (актуально для вечных циклов вроде main_loop без задач).
+    handler = logging.handlers.RotatingFileHandler(
+        log_path, encoding="utf-8",
+        maxBytes=3 * 1024 * 1024,   # 3 МБ на файл
+        backupCount=2,              # + .1 и .2 → максимум ~9 МБ на прогон
+    )
     handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)-7s %(message)s",
         datefmt="%H:%M:%S"

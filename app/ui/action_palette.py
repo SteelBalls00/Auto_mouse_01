@@ -14,7 +14,7 @@ ACTION_GROUPS = [
     ("Основное", [
         "wait", "type_text", "paste_text", "press_key", "run_program", "cmd",
         "python_eval", "ask_yesno", "set_variable", "wait_window_gone", "log_message",
-        "separator", "debug_pause"
+        "separator", "debug_pause", "exit_step_mode"
     ]),
     ("Мышь и координаты", [
         "click_xy"

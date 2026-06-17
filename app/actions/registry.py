@@ -44,6 +44,7 @@ from app.actions.try_catch import TryStartAction, CatchAction, EndTryAction
 from app.actions.log_message import LogMessageAction
 from app.actions.separator import SeparatorAction
 from app.actions.debug_pause import DebugPauseAction
+from app.actions.exit_step_mode import ExitStepModeAction
 
 
 # Формат: "ключ": (Класс, params_по_умолчанию)
@@ -340,6 +341,10 @@ ACTION_REGISTRY = {
     ),
     "debug_pause": (
         DebugPauseAction,
+        {"message": ""}
+    ),
+    "exit_step_mode": (
+        ExitStepModeAction,
         {"message": ""}
     ),
 }

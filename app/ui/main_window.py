@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumHeight(200)
+        # Не даём логу разрастаться без предела (циклы main_loop) — храним хвост
+        self.log.document().setMaximumBlockCount(3000)
 
         # Кнопки запуска/остановки
         self.btn_run = QPushButton("▶ Запустить")
@@ -640,9 +642,21 @@ class MainWindow(QMainWindow):
         scenario_dir = os.path.dirname(self._scenario_path)
         assets = os.path.join(scenario_dir, "assets")
 
+        import uuid
         preview = model.params.get("preview")
+
+        # Коллизия: тот же файл превью используется другим шагом
+        # (например, после копирования шага) — этому шагу даём новый путь.
+        if preview:
+            for other in self.actions:
+                if other is model:
+                    continue
+                if other.action_type == "window_click_xy" \
+                        and other.params.get("preview") == preview:
+                    preview = ""   # сбросим — ниже назначим уникальный
+                    break
+
         if not preview:
-            import uuid
             preview = os.path.join(assets, f"clickpreview_{uuid.uuid4().hex[:8]}.png")
         elif not os.path.isabs(preview):
             # относительный assets/... → абсолютный для редактора и рантайма
@@ -794,10 +808,16 @@ class MainWindow(QMainWindow):
         if not rows:
             return
         self.editor.apply()   # зафиксировать правки текущего шага
-        self._clipboard_steps = [
-            copy.deepcopy(self.actions[r].to_dict())
-            for r in sorted(rows) if 0 <= r < len(self.actions)
-        ]
+        clip = []
+        for r in sorted(rows):
+            if not (0 <= r < len(self.actions)):
+                continue
+            d = copy.deepcopy(self.actions[r].to_dict())
+            # у копий шага клика сбрасываем путь снимка — получат свой при вставке
+            if d.get("type") == "window_click_xy":
+                d.get("params", {})["preview"] = ""
+            clip.append(d)
+        self._clipboard_steps = clip
         self.log.append(f"📋 Скопировано шагов: {len(self._clipboard_steps)}")
 
     def _paste_steps(self, row):

@@ -6,6 +6,7 @@ class RunScenarioAction(Action):
     name = "Запустить сценарий"
     icon = "▶"
     file_params = ("scenario_path",)
+    wrapped_params = ("scenario_path",)   # копируется в assets/wrapped_scenarios/<имя>/
     param_labels = {
         "task_name":     "Имя задачи (для лога и списка)",
         "scenario_path": "Путь к scenario.json",
