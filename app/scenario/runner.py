@@ -30,6 +30,9 @@ class ScenarioRunner(QThread):
         self.context     = {}
         self._stop_event = threading.Event()
         self.context["stop_event"] = self._stop_event
+        # Эмиттер лога — чтобы вложенные сценарии (run_scenario) пробрасывали
+        # свои строки наверх по цепочке и были видны в логе/боте.
+        self.context["_log_callback"] = self.log_line.emit
         self._start_from    = start_from
         self._stop_after    = stop_after if stop_after is not None else (len(actions) - 1)
         self._single_step   = single_step

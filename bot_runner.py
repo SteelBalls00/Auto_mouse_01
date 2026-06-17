@@ -1,3 +1,4 @@
+# pyinstaller --noconfirm --clean --onedir --windowed --name AutoMouseBot --icon app/resources/automouse.ico --collect-all pywinauto --collect-submodules comtypes --hidden-import keyboard --hidden-import fdb --hidden-import pyperclip --add-data "app/resources;app/resources" bot_runner.py
 """
 Автономный бот-раннер для Auto_mouse_01.
 
@@ -175,9 +176,17 @@ class BotController(QObject):
             elif "✖" in text:
                 t = "err"
             self.line.emit(text.strip(), t)
-            # Текущая операция — строки вида "[n/m] ..."
-            if text.lstrip().startswith("["):
-                self.current_op.emit(text.strip())
+            # Текущая операция — строки вида "[n/m] Название действия..."
+            stripped = text.strip()
+            if stripped.startswith("["):
+                # отрезаем счётчик "[n/m] " и хвостовые точки → чистое русское имя
+                label = stripped
+                close = label.find("]")
+                if close != -1:
+                    label = label[close + 1:].strip()
+                label = label.rstrip(".").strip()
+                if label:
+                    self.current_op.emit(label)
 
         self._runner.log_line.connect(on_line)
         self._runner.finished_ok.connect(lambda: done.set())

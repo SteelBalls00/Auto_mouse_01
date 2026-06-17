@@ -1,3 +1,4 @@
+# pyinstaller --noconfirm --clean --onedir --windowed --name AutoMouse --icon app/resources/automouse.ico --collect-all pywinauto --collect-submodules comtypes --hidden-import keyboard --hidden-import fdb --hidden-import pyperclip --add-data "app/resources;app/resources" main.py
 import os
 import sys
 from PyQt5.QtWidgets import QApplication
