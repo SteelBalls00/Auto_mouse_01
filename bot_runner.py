@@ -1,4 +1,4 @@
-# pyinstaller --noconfirm --clean --onedir --windowed --name AutoMouseBot --icon app/resources/automouse.ico --collect-all pywinauto --collect-submodules comtypes --hidden-import keyboard --hidden-import fdb --hidden-import pyperclip --add-data "app/resources;app/resources" bot_runner.py
+# pyinstaller --noconfirm --clean --onedir --windowed --name AutoMouseBot --icon app/resources/automouse.ico --collect-all cv2 --collect-all numpy --collect-all pywinauto --collect-submodules comtypes --hidden-import keyboard --hidden-import fdb --hidden-import pyperclip --hidden-import PIL --exclude-module pkg_resources --exclude-module setuptools --add-data "app/resources;app/resources" bot_runner.py
 """
 Автономный бот-раннер для Auto_mouse_01.
 

@@ -1,11 +1,15 @@
 import time
-import numpy as np
-import cv2
-import pyautogui as pg
+
+# ВАЖНО: cv2 и numpy импортируются ЛЕНИВО (внутри функций), а не на уровне модуля.
+# Иначе тяжёлый OpenCV грузится при старте программы (его тянет цепочка
+# registry → wait_image → image_utils), и на старых ОС (Win7, Server 2012)
+# без нужного рантайма это валит запуск ещё до окна.
 
 
 def _imread_unicode(path):
     """cv2.imread не понимает не-ASCII пути — читаем через numpy."""
+    import numpy as np
+    import cv2
     with open(path, "rb") as f:
         data = f.read()
     arr = np.frombuffer(data, dtype=np.uint8)
@@ -19,6 +23,9 @@ def _imread_unicode(path):
 
 def _screenshot_bgr(region=None):
     """Скриншот в BGR-формате (как ждёт OpenCV)."""
+    import numpy as np
+    import cv2
+    import pyautogui as pg
     shot = pg.screenshot(region=region)
     return cv2.cvtColor(np.array(shot), cv2.COLOR_RGB2BGR)
 
@@ -28,6 +35,7 @@ def find_image_on_screen(image_path, confidence=0.8, region=None):
     Ищет изображение на экране (или в регионе).
     Возвращает (x, y, w, h) центра-кандидата или None.
     """
+    import cv2
     needle = _imread_unicode(image_path)
     h, w = needle.shape[:2]
 

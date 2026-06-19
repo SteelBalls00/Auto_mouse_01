@@ -33,10 +33,36 @@ class PasteTextAction(Action):
         delay_ms = self._to_float(self.params.get("delay_ms", 300)) / 1000
         restore = str(self.params.get("restore", "")).strip().lower() in ("да", "1", "true")
 
+        # ── Подробный лог: что и откуда вставляем ─────────────────────
+        log = context.get("_log")
+        if log:
+            raw = ""
+            if isinstance(getattr(self, "_raw_params", None), dict):
+                raw = str(self._raw_params.get("text", "") or "")
+            src = f"{raw} → " if (raw and raw != text) else ""
+            preview = text if len(text) <= 200 else text[:200] + "…"
+            log(f"📋 Вставка: {src}'{preview}' ({len(text)} симв.)")
+            # Предупреждения о подозрительных случаях
+            if text == "":
+                log("   ⚠ значение ПУСТОЕ — в буфер уйдёт пустая строка")
+            elif "{" in text and "}" in text:
+                log("   ⚠ остался неподставленный плейсхолдер — переменная не "
+                    "найдена/пуста, вставляется как есть")
+
         old_clipboard = self._get_clipboard() if restore else None
 
         # кладём текст в буфер
         self._set_clipboard(text)
+
+        # проверяем, что буфер действительно принял наш текст
+        if log:
+            try:
+                got = self._get_clipboard()
+                if got != text:
+                    g = got if len(str(got)) <= 200 else str(got)[:200] + "…"
+                    log(f"   ⚠ буфер обмена НЕ совпал с ожидаемым! в буфере: '{g}'")
+            except Exception as e:
+                log(f"   ⚠ не удалось перечитать буфер: {e}")
 
         # нажимаем Ctrl+V через низкоуровневый keybd_event
         _keybd_event(VK_CONTROL, 0, 0, 0)            # Ctrl down

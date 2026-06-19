@@ -106,6 +106,7 @@ class Action:
     def execute_with_resolved(self, context):
         log_substitutions(self.params, context)
         original = self.params
+        self._raw_params = original          # до подстановки — для логов действия
         self.params = {
             k: resolve_vars(v, context) if isinstance(v, str) else v
             for k, v in original.items()
