@@ -5,6 +5,7 @@ class ForEachStartAction(Action):
     name = "ЦИКЛ по списку"
     icon = "🔁"
     param_labels = {
+        "desc":      "Описание (комментарий к блоку)",
         "loop_name": "Имя цикла",
         "source":    "Имя переменной-списка",
         "columns":   "Колонки текущего элемента (через запятую)",

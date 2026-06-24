@@ -5,6 +5,7 @@ class WhileStartAction(Action):
     name = "ЦИКЛ ПОКА"
     icon = "🔄"
     param_labels = {
+        "desc":      "Описание (комментарий к блоку)",
         "left":     "Значение или {переменная}",
         "operator": "Оператор",
         "right":    "Сравнить с",

@@ -4,6 +4,7 @@ from app.actions.base import Action, resolve_vars
 class IfStartAction(Action):
     name = "ЕСЛИ"
     param_labels = {
+        "desc":      "Описание (комментарий к блоку)",
         "left":     "Значение или {переменная}",
         "operator": "Оператор",
         "right":    "Сравнить с",

@@ -109,7 +109,7 @@ ACTION_REGISTRY = {
     ),
     "if_start": (
         IfStartAction,
-        {"left": "", "operator": "не пусто", "right": ""}
+        {"desc": "", "left": "", "operator": "не пусто", "right": ""}
     ),
     "else": (
         ElseAction,
@@ -145,7 +145,7 @@ ACTION_REGISTRY = {
     ),
     "for_each_start": (
         ForEachStartAction,
-        {"loop_name": "", "source": "", "columns": ""}
+        {"desc": "", "loop_name": "", "source": "", "columns": ""}
     ),
     "end_for": (
         EndForAction,
@@ -205,7 +205,7 @@ ACTION_REGISTRY = {
     ),
     "while_start": (
         WhileStartAction,
-        {"left": "", "operator": "не пусто", "right": "", "max_iter": 10000}
+        {"desc": "", "left": "", "operator": "не пусто", "right": "", "max_iter": 10000}
     ),
     "end_while": (
         EndWhileAction,
@@ -326,7 +326,7 @@ ACTION_REGISTRY = {
     ),
     "repeat_start": (
         RepeatStartAction,
-        {"loop_name": "", "times": 3}
+        {"desc": "", "loop_name": "", "times": 3}
     ),
     "end_repeat": (
         EndRepeatAction,
@@ -334,7 +334,7 @@ ACTION_REGISTRY = {
     ),
     "try_start": (
         TryStartAction,
-        {"try_name": "try"}
+        {"desc": "", "try_name": "try"}
     ),
     "catch": (
         CatchAction,

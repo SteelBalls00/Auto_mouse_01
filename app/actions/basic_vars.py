@@ -30,6 +30,7 @@ class RepeatStartAction(Action):
     name = "ПОВТОРИТЬ N раз"
     icon = "🔁"
     param_labels = {
+        "desc":      "Описание (комментарий к блоку)",
         "loop_name": "Имя цикла",
         "times":     "Сколько раз",
     }

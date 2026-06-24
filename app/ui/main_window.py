@@ -784,6 +784,31 @@ class MainWindow(QMainWindow):
     def _search_prev(self):
         self._search_step(-1)
 
+    # Открывающие / серединные / закрывающие парные блоки
+    _BLOCK_OPENERS = {"if_start", "for_each_start", "while_start", "repeat_start", "try_start"}
+    _BLOCK_MIDDLES = {"else", "catch"}
+    _BLOCK_CLOSERS = {"end_if", "end_for", "end_while", "end_repeat", "end_try"}
+
+    def _block_desc(self, index):
+        """Описание блока для строки: у открывающего — своё, у середины/закрытия —
+        подтянутое от парного открывающего."""
+        t = self.actions[index].action_type
+        if t in self._BLOCK_OPENERS:
+            return (self.actions[index].params.get("desc") or "").strip()
+        if t in self._BLOCK_MIDDLES or t in self._BLOCK_CLOSERS:
+            # ищем открывающий: стек до текущего шага, верх стека — наш блок
+            stack = []
+            for i in range(index):
+                tt = self.actions[i].action_type
+                if tt in self._BLOCK_OPENERS:
+                    stack.append(i)
+                elif tt in self._BLOCK_CLOSERS:
+                    if stack:
+                        stack.pop()
+            if stack:
+                return (self.actions[stack[-1]].params.get("desc") or "").strip()
+        return ""
+
     def _step_text(self, index):
         """Полный текст элемента списка: номер + отступ + префиксы + заголовок."""
         model = self.actions[index]
@@ -795,16 +820,32 @@ class MainWindow(QMainWindow):
         else_outdent = "  " if t == "else" else ""
         prefix = "⊘ " if not model.enabled else ""
         bp = "🔴 " if getattr(model, "breakpoint", False) else ""
-        return f"{index + 1}. {indent}{else_outdent}{bp}{prefix}{model.title()}"
+        text = f"{index + 1}. {indent}{else_outdent}{bp}{prefix}{model.title()}"
+        # Описание блока — у открывающих и всех связанных с ними
+        desc = self._block_desc(index)
+        if desc:
+            text += f"   — {desc}"
+        return text
+
+    def _refresh_block_texts(self):
+        """Обновить текст всех строк управляющих блоков (после правки описания)."""
+        blocks = self._BLOCK_OPENERS | self._BLOCK_MIDDLES | self._BLOCK_CLOSERS
+        for i in range(self.list.count()):
+            if 0 <= i < len(self.actions) and self.actions[i].action_type in blocks:
+                self.list.item(i).setText(self._step_text(i))
 
     # ── Выбор шага ───────────────────────────────────────────────────
     def _on_select(self, row):
         # Сохранить изменения предыдущего шага
         if self.current_index is not None and 0 <= self.current_index < len(self.actions):
+            prev_t = self.actions[self.current_index].action_type
             self.editor.apply()
             self.list.item(self.current_index).setText(
                 self._step_text(self.current_index)
             )
+            # если правили открывающий блок — обновить подписи парных строк
+            if prev_t in self._BLOCK_OPENERS:
+                self._refresh_block_texts()
             self.vars_tree.rebuild(self.actions)
 
         if 0 <= row < len(self.actions):

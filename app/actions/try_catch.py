@@ -5,6 +5,7 @@ class TryStartAction(Action):
     name = "ПОПРОБОВАТЬ"
     icon = "🛡"
     param_labels = {
+        "desc":      "Описание (комментарий к блоку)",
         "try_name": "Имя блока (для переменной ошибки)",
     }
 
