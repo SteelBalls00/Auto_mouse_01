@@ -24,10 +24,12 @@ class ScenarioRunner(QThread):
 
     def __init__(self, actions, parent=None, start_from=0, single_step=False,
                  scenario_name="scenario", project_root=None,
-                 step_mode=False, step_delay=0.0, stop_after=None):
+                 step_mode=False, step_delay=0.0, stop_after=None,
+                 dry_run=False):
         super().__init__(parent)
         self.actions     = actions
         self.context     = {}
+        self._dry_run    = dry_run            # сухой прогон: без побочных действий
         self._stop_event = threading.Event()
         self.context["stop_event"] = self._stop_event
         # Эмиттер лога — чтобы вложенные сценарии (run_scenario) пробрасывали
@@ -114,19 +116,20 @@ class ScenarioRunner(QThread):
             self._log(f"    {k} = {self._fmt_value(self.context[k])}")
 
     @staticmethod
-    def _short(v, maxlen=80):
+    def _short(v, maxlen=None):
+        """Компактно для вложенных значений: словарь разворачиваем, длинный
+        список сворачиваем по количеству, строки НЕ обрезаем."""
         if isinstance(v, dict):
             inner = ", ".join(
-                f"{kk}={ScenarioRunner._short(vv, 40)}" for kk, vv in v.items()
+                f"{kk}={ScenarioRunner._short(vv)}" for kk, vv in v.items()
             )
             return "{" + inner + "}"
         if isinstance(v, list):
             return f"[{len(v)} строк]"
-        s = str(v)
-        return s if len(s) <= maxlen else s[:maxlen] + "…"
+        return str(v)
 
     @staticmethod
-    def _fmt_value(v, maxlen=400):
+    def _fmt_value(v):
         try:
             if isinstance(v, dict):
                 inner = ", ".join(
@@ -136,14 +139,58 @@ class ScenarioRunner(QThread):
             elif isinstance(v, list):
                 s = f"[список, {len(v)} строк]"
                 if v:
-                    s += "  первая: " + ScenarioRunner._short(v[0], 200)
+                    s += "  первая: " + ScenarioRunner._short(v[0])
             else:
                 s = str(v)
         except Exception:
             s = "<не удалось отобразить>"
-        if len(s) > maxlen:
-            s = s[:maxlen] + "…"
         return s
+
+    # ── Сухой прогон ─────────────────────────────────────────────────
+    # Эти действия безопасны и нужны, чтобы заполнить переменные
+    # (без них подстановки дальше были бы пустыми).
+    _DRY_SAFE_TYPES = {"python_eval", "set_variable"}
+
+    def _dry_safe(self, t, model):
+        """Можно ли выполнить действие в сухом прогоне (read-only, нужно для переменных)."""
+        if t in self._DRY_SAFE_TYPES:
+            return True
+        if t == "sql":
+            # выполняем только SELECT — он наполняет переменные и не меняет БД
+            q = str(model.params.get("query", "") or "").lstrip().upper()
+            return q.startswith("SELECT")
+        return False
+
+    def _dry_log_params(self, model):
+        """В сухом прогоне показать, что БЫ ушло в действие (с подстановкой переменных)."""
+        from app.actions.base import resolve_vars, short_value
+        for k, v in model.params.items():
+            if not isinstance(v, str) or v == "":
+                continue
+            if k in ("preview",):   # служебные не показываем
+                continue
+            resolved = resolve_vars(v, self.context)
+            if resolved != v:
+                self._log(f"    {k}: {v} → {short_value(resolved)}")
+            else:
+                self._log(f"    {k}: {short_value(resolved)}")
+
+    def _capture_error_screenshot(self, step_no, action_name):
+        """Снимок экрана при ошибке шага — рядом с лог-файлом прогона."""
+        if self._dry_run:
+            return
+        try:
+            from datetime import datetime
+            from PIL import ImageGrab
+            base = os.path.dirname(self._log_path) if self._log_path else self._project_root
+            os.makedirs(base, exist_ok=True)
+            ts = datetime.now().strftime("%H-%M-%S")
+            path = os.path.join(base, f"error_step{step_no}_{ts}.png")
+            img = ImageGrab.grab(all_screens=True)
+            img.save(path)
+            self._log(f"  📸 Снимок экрана ошибки: {path}")
+        except Exception as e:
+            self._log(f"  ⚠ не удалось сделать снимок ошибки: {e}")
 
     def _main_loop(self):
         try:
@@ -182,7 +229,13 @@ class ScenarioRunner(QThread):
             # переопределяет режим запуска, если он задан.
             flag = self.context.get("_step_mode_active")
             step_mode = self._step_mode if flag is None else bool(flag)
-            if step_mode:
+            # Точка останова: пауза один раз, даже при обычном прогоне
+            bp_hit = (not step_mode and not self._dry_run
+                      and i < len(self.actions)
+                      and getattr(self.actions[i], "breakpoint", False))
+            if step_mode or bp_hit:
+                if bp_hit:
+                    self._log(f"🔴 Точка останова на шаге {i + 1} — нажмите «Дальше»")
                 self._step_gate.clear()
                 self.awaiting_step.emit(i)
                 # ждём, пока UI разрешит (кнопка «Дальше») или остановят
@@ -464,9 +517,18 @@ class ScenarioRunner(QThread):
 
                 action = ACTION_REGISTRY[t][0](model.params)
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}/{len(self.actions)}] {action.name}...")
                 # даём действию возможность писать в лог
                 self.context["_log"] = lambda m: self._log(f"    {m}")
+
+                # ── Сухой прогон: показываем что БЫ сделали, без побочных эффектов ──
+                if self._dry_run and not self._dry_safe(t, model):
+                    self._log(f"[{i + 1}/{len(self.actions)}] 🧪 {action.name}")
+                    self._dry_log_params(model)
+                    i += 1
+                    continue
+
+                tag = "🧪 " if self._dry_run else ""
+                self._log(f"[{i + 1}/{len(self.actions)}] {tag}{action.name}...")
 
                 try:
                     action.execute_with_resolved(self.context)
@@ -479,6 +541,8 @@ class ScenarioRunner(QThread):
                         f"  ✖ Ошибка на шаге {i + 1} ({action.name}): {err_text}",
                         "error"
                     )
+                    # Снимок экрана в момент ошибки — рядом с логом прогона
+                    self._capture_error_screenshot(i + 1, action.name)
 
                     # Есть ли активный try-блок, у которого мы внутри try-части?
                     handler = None

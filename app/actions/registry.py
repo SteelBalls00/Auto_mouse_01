@@ -1,8 +1,10 @@
 from app.actions.wait import WaitAction
+from app.actions.wait_until import WaitUntilAction
 from app.actions.run_program import RunProgramAction
 from app.actions.click_xy import ClickXYAction
 from app.actions.type_text import TypeTextAction
 from app.actions.paste_text import PasteTextAction
+from app.actions.verify_field import VerifyFieldAction
 from app.actions.wait_image import WaitImageAction, ClickImageAction
 from app.actions.click_image_in_window import ClickImageInWindowAction
 from app.actions.cmd import CmdAction
@@ -22,6 +24,7 @@ from app.actions.python_eval import PythonEvalAction
 from app.actions.run_scenario import RunScenarioAction
 from app.actions.while_loop import WhileStartAction, EndWhileAction
 from app.actions.checks import CheckImageAction, CheckProcessAction, CheckWindowAction
+from app.actions.error_guard import ErrorGuardAction
 from app.actions.process_service import (
     KillProcessAction, StartServiceAction, StopServiceAction
 )
@@ -53,6 +56,11 @@ ACTION_REGISTRY = {
         WaitAction,
         {"ms": 1000}
     ),
+    "wait_until": (
+        WaitUntilAction,
+        {"kind": "окно появилось", "backend": "win32", "title": "", "class_name": "",
+         "expected": "", "timeout": 30, "interval": 0.5}
+    ),
     "run_program": (
         RunProgramAction,
         {"path": ""}
@@ -83,7 +91,7 @@ ACTION_REGISTRY = {
     ),
     "cmd": (
         CmdAction,
-        {"command": "", "timeout": 30, "capture": False}
+        {"command": "", "op_name": "cmd", "timeout": 30, "fail_on_error": "да"}
     ),
     "sql": (
         SqlQueryAction,
@@ -214,6 +222,11 @@ ACTION_REGISTRY = {
     "check_window": (
         CheckWindowAction,
         {"check_name": "", "title": ""}
+    ),
+    "error_guard": (
+        ErrorGuardAction,
+        {"titles": "Ошибка\nВнимание\nError", "read_text": "да",
+         "on_found": "ошибка", "out_name": "err"}
     ),
     "kill_process": (
         KillProcessAction,
@@ -346,5 +359,10 @@ ACTION_REGISTRY = {
     "exit_step_mode": (
         ExitStepModeAction,
         {"message": ""}
+    ),
+    "verify_field": (
+        VerifyFieldAction,
+        {"expected": "", "select_combo": "ctrl+a", "compare": "обрезка пробелов",
+         "on_mismatch": "предупредить", "out_name": "check", "delay_ms": 150}
     ),
 }

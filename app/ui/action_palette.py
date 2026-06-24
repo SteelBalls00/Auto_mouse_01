@@ -1,8 +1,10 @@
 from PyQt5.QtCore import pyqtSignal, Qt, QMimeData
 from PyQt5.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QAbstractItemView,
-    QWidget, QVBoxLayout, QLineEdit
+    QWidget, QVBoxLayout, QLineEdit, QMenu, QInputDialog, QMessageBox
 )
+
+from app.ui import sequences_store
 
 
 MIME_ACTION_TYPE = "application/x-rpa-action-type"
@@ -12,7 +14,7 @@ MIME_ACTION_TYPE = "application/x-rpa-action-type"
 # Какое действие в какую группу попадает
 ACTION_GROUPS = [
     ("Основное", [
-        "wait", "type_text", "paste_text", "press_key", "run_program", "cmd",
+        "wait", "wait_until", "type_text", "paste_text", "press_key", "run_program", "cmd",
         "python_eval", "ask_yesno", "set_variable", "wait_window_gone", "log_message",
         "separator", "debug_pause", "exit_step_mode"
     ]),
@@ -42,7 +44,7 @@ ACTION_GROUPS = [
         "sql", "sql_many"
     ]),
     ("Проверки (условия)", [
-        "check_image", "check_process", "check_window", "check_file"
+        "check_image", "check_process", "check_window", "check_file", "verify_field", "error_guard"
     ]),
     ("Процессы и службы", [
         "kill_process", "start_service", "stop_service"
@@ -62,6 +64,7 @@ ACTION_GROUPS = [
 
 class ActionPaletteTree(QTreeWidget):
     actionChosen = pyqtSignal(str)
+    sequenceChosen = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -76,6 +79,8 @@ class ActionPaletteTree(QTreeWidget):
         )
 
         self.itemDoubleClicked.connect(self._on_double_click)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         self._saved_expanded = None   # состояние групп до начала поиска
         self._populate()
 
@@ -122,10 +127,68 @@ class ActionPaletteTree(QTreeWidget):
                     Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
                 )
 
+        # Последовательности (сниппеты) — разворачиваются в обычные шаги
+        seq_names = sequences_store.names()
+        seq_group = QTreeWidgetItem(self, ["Последовательности"])
+        seq_group.setFlags(Qt.ItemIsEnabled)
+        font = seq_group.font(0); font.setBold(True); seq_group.setFont(0, font)
+        seq_group.setExpanded(True)
+        self._seq_group = seq_group
+        if not seq_names:
+            hint = QTreeWidgetItem(seq_group, ["(выделите шаги → ПКМ → Сохранить)"])
+            hint.setFlags(Qt.ItemIsEnabled)
+            hint.setForeground(0, Qt.gray)
+        for name in seq_names:
+            leaf = QTreeWidgetItem(seq_group, [f"📦  {name}"])
+            leaf.setData(0, Qt.UserRole, {"seq": name})
+            leaf.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+
+    def refresh(self):
+        """Перестроить дерево (после изменения списка последовательностей)."""
+        self.clear()
+        self._saved_expanded = None
+        self._populate()
+
     def _on_double_click(self, item):
-        action_type = item.data(0, Qt.UserRole)
-        if action_type:
-            self.actionChosen.emit(action_type)
+        data = item.data(0, Qt.UserRole)
+        if isinstance(data, dict) and "seq" in data:
+            self.sequenceChosen.emit(data["seq"])
+        elif isinstance(data, str) and data:
+            self.actionChosen.emit(data)
+
+    def _on_context_menu(self, pos):
+        item = self.itemAt(pos)
+        if not item:
+            return
+        data = item.data(0, Qt.UserRole)
+        if not (isinstance(data, dict) and "seq" in data):
+            return
+        name = data["seq"]
+        menu = QMenu(self)
+        act_insert = menu.addAction("➕ Вставить в сценарий")
+        act_rename = menu.addAction("✏ Переименовать")
+        act_delete = menu.addAction("🗑 Удалить")
+        chosen = menu.exec_(self.viewport().mapToGlobal(pos))
+        if chosen is act_insert:
+            self.sequenceChosen.emit(name)
+        elif chosen is act_rename:
+            new, ok = QInputDialog.getText(self, "Переименовать последовательность",
+                                           "Новое имя:", text=name)
+            new = (new or "").strip()
+            if ok and new and new != name:
+                if sequences_store.exists(new):
+                    QMessageBox.warning(self, "Имя занято",
+                                        f"Последовательность «{new}» уже существует.")
+                else:
+                    sequences_store.rename(name, new)
+                    self.refresh()
+        elif chosen is act_delete:
+            if QMessageBox.question(
+                self, "Удалить последовательность",
+                f"Удалить «{name}»? Уже вставленные в сценарии шаги не изменятся."
+            ) == QMessageBox.Yes:
+                sequences_store.delete(name)
+                self.refresh()
 
     def mimeData(self, items):
         m = QMimeData()
@@ -178,6 +241,7 @@ class ActionPalette(QWidget):
     actionChosen(type) — двойной клик
     """
     actionChosen = pyqtSignal(str)
+    sequenceChosen = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -187,6 +251,7 @@ class ActionPalette(QWidget):
 
         self.tree = ActionPaletteTree()
         self.tree.actionChosen.connect(self.actionChosen.emit)
+        self.tree.sequenceChosen.connect(self.sequenceChosen.emit)
         layout.addWidget(self.tree, 1)
 
         self.search = QLineEdit()
@@ -194,3 +259,6 @@ class ActionPalette(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.tree.filter_text)
         layout.addWidget(self.search)
+
+    def refresh_sequences(self):
+        self.tree.refresh()

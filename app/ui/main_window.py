@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QListWidgetItem,
     QPushButton, QLabel, QTextEdit,
     QVBoxLayout, QHBoxLayout, QMessageBox,
-    QFileDialog, QSplitter, QApplication, QDialog, QComboBox
+    QFileDialog, QSplitter, QApplication, QDialog, QComboBox, QLineEdit
 )
 
 from app.actions.registry import ACTION_REGISTRY
@@ -19,6 +19,7 @@ from app.ui.action_palette import ActionPalette
 from app.ui.scenario_list import ScenarioList
 from app.ui.variables_tree import VariablesTree
 from app.ui.var_inspector import VariableInspector
+from app.ui.dry_run_dialog import DryRunDialog
 from app.ui import colors_store
 from app.ui.theme import apply_theme
 from PyQt5.QtWidgets import QShortcut
@@ -69,6 +70,7 @@ class MainWindow(QMainWindow):
         # ── Палитра действий (самая левая) ────────────────────────────
         self.palette = ActionPalette()
         self.palette.actionChosen.connect(self._add_action_by_type)
+        self.palette.sequenceChosen.connect(self._insert_sequence)
 
         palette_layout = QVBoxLayout()
         palette_layout.addWidget(QLabel("Действия"))
@@ -111,10 +113,37 @@ class MainWindow(QMainWindow):
         self.btn_load.clicked.connect(self._load_scenario)
         self.btn_import.clicked.connect(self._import_actions)
         self.btn_migrate.clicked.connect(self._migrate_steps)
+        self.btn_validate = QPushButton("✓ Проверить")
+        self.btn_validate.setToolTip("Проверить сценарий: структуру блоков, окна, переменные")
+        self.btn_validate.clicked.connect(self._validate_scenario)
 
         left = QVBoxLayout()
         left.addWidget(QLabel("Шаги сценария"))
         left.addWidget(self.list)
+
+        # ── Поиск по шагам ────────────────────────────────────────────
+        self.search_steps = QLineEdit()
+        self.search_steps.setPlaceholderText("🔍 Поиск по шагам (части слов, любой порядок)")
+        self.search_steps.returnPressed.connect(self._search_next)
+        self.search_steps.textChanged.connect(self._search_reset)
+        self.btn_search_prev = QPushButton("◀")
+        self.btn_search_prev.setFixedWidth(32)
+        self.btn_search_prev.setToolTip("Предыдущее совпадение")
+        self.btn_search_prev.clicked.connect(self._search_prev)
+        self.btn_search_next = QPushButton("▶")
+        self.btn_search_next.setFixedWidth(32)
+        self.btn_search_next.setToolTip("Следующее совпадение")
+        self.btn_search_next.clicked.connect(self._search_next)
+        self.lbl_search = QLabel("")
+        self.lbl_search.setStyleSheet("color:#64748b;")
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.search_steps, 1)
+        search_row.addWidget(self.btn_search_prev)
+        search_row.addWidget(self.btn_search_next)
+        search_row.addWidget(self.lbl_search)
+        left.addLayout(search_row)
+        self._search_matches = []
+        self._search_pos = -1
 
         left_w = QWidget()
         left_w.setLayout(left)
@@ -132,6 +161,9 @@ class MainWindow(QMainWindow):
         self.btn_run = QPushButton("▶ Запустить")
         self.btn_debug = QPushButton("🐞 По шагам")
         self.btn_slow = QPushButton("🐢 Замедленно")
+        self.btn_dry = QPushButton("🧪 Сухой прогон")
+        self.btn_dry.setToolTip("Показать, что будет выполнено и какие данные "
+                                "подставятся — без кликов и записи в БД")
         self.btn_next = QPushButton("⏭ Дальше")
         self.btn_stop = QPushButton("⏹ Стоп")
         self.btn_stop.setEnabled(False)
@@ -152,6 +184,7 @@ class MainWindow(QMainWindow):
         self.btn_run.clicked.connect(self._run_scenario)
         self.btn_debug.clicked.connect(self._run_debug)
         self.btn_slow.clicked.connect(self._run_slow)
+        self.btn_dry.clicked.connect(self._dry_run)
         self.btn_next.clicked.connect(self._step_next)
         self.btn_stop.clicked.connect(self._stop_scenario)
 
@@ -159,6 +192,7 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.btn_run)
         run_row.addWidget(self.btn_debug)
         run_row.addWidget(self.btn_slow)
+        run_row.addWidget(self.btn_dry)
         run_row.addWidget(self.btn_next)
         run_row.addWidget(self.btn_stop)
         run_row.addStretch(1)
@@ -221,6 +255,7 @@ class MainWindow(QMainWindow):
         self._rebuild_recent_combo()
         toolbar.addWidget(self.recent_combo)
 
+        toolbar.addWidget(self.btn_validate)
         toolbar.addWidget(self.btn_migrate)
 
         toolbar_w = QWidget()
@@ -246,6 +281,48 @@ class MainWindow(QMainWindow):
     def _hotkey_stop(self):
         if self.btn_stop.isEnabled():
             self._stop_scenario()
+
+    def _validate_scenario(self):
+        """Проверить сценарий и показать замечания."""
+        if not self.actions:
+            QMessageBox.information(self, "Проверка", "Шагов нет.")
+            return
+        self.editor.apply()
+        from app.ui.scenario_validator import validate
+        issues = validate(self.actions)
+        if not issues:
+            QMessageBox.information(
+                self, "Проверка сценария",
+                "✓ Замечаний нет — структура, окна и переменные в порядке."
+            )
+            return
+
+        errs = [x for x in issues if x[0] == "err"]
+        warns = [x for x in issues if x[0] == "warn"]
+        lines = []
+        if errs:
+            lines.append(f"🔴 Ошибки ({len(errs)}):")
+            for _, sno, text in errs:
+                where = f"шаг {sno}: " if sno else ""
+                lines.append(f"   • {where}{text}")
+            lines.append("")
+        if warns:
+            lines.append(f"🟡 Предупреждения ({len(warns)}):")
+            for _, sno, text in warns:
+                where = f"шаг {sno}: " if sno else ""
+                lines.append(f"   • {where}{text}")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Проверка сценария")
+        box.setIcon(QMessageBox.Warning if errs else QMessageBox.Information)
+        box.setText(f"Найдено замечаний: {len(issues)}")
+        box.setDetailedText("\n".join(lines))
+        # сразу разворачиваем детали
+        for b in box.buttons():
+            if box.buttonRole(b) == QMessageBox.ActionRole:
+                b.click()
+                break
+        box.exec_()
 
     def _migrate_steps(self):
         """Дополнить все шаги недостающими параметрами из актуальных определений
@@ -442,7 +519,11 @@ class MainWindow(QMainWindow):
                 act_toggle = menu.addAction("✓ Включить шаг")
             menu.addSeparator()
             act_copy = menu.addAction("📋 Копировать")
+            bp_on = getattr(self.actions[row], "breakpoint", False)
+            act_bp = menu.addAction("⚪ Убрать точку останова" if bp_on
+                                    else "🔴 Точка останова")
             act_delete = menu.addAction("🗑 Удалить")
+            act_save_seq = None
             act_run_selected = None
         else:
             act_run_selected = menu.addAction(f"▶ Запустить выделенные ({n})")
@@ -454,9 +535,11 @@ class MainWindow(QMainWindow):
             )
             menu.addSeparator()
             act_copy = menu.addAction(f"📋 Копировать ({n})")
+            act_save_seq = menu.addAction(f"📦 Сохранить как последовательность ({n})")
             act_delete = menu.addAction(f"🗑 Удалить выделенные ({n})")
             act_run_from = None
             act_run_one = None
+            act_bp = None
 
         # Вставка — всегда доступна, если в буфере что-то есть
         act_paste = None
@@ -484,6 +567,12 @@ class MainWindow(QMainWindow):
                 self._toggle_selected()
         elif chosen is act_copy:
             self._copy_steps(rows)
+        elif chosen is act_save_seq:
+            self._save_sequence(rows)
+        elif chosen is act_bp:
+            m = self.actions[row]
+            m.breakpoint = not getattr(m, "breakpoint", False)
+            self.list.item(row).setText(self._step_text(row))
         elif chosen is act_paste:
             self._paste_steps(row)
         elif chosen is act_delete:
@@ -596,6 +685,55 @@ class MainWindow(QMainWindow):
             level = max(0, level - 1)
         return level
 
+    # ── Поиск по шагам ───────────────────────────────────────────────
+    def _search_reset(self):
+        """Текст запроса изменился — пересчитать совпадения при следующем переходе."""
+        self._search_matches = []
+        self._search_pos = -1
+        self.lbl_search.setText("")
+
+    def _search_compute(self):
+        """Список индексов шагов, чьи названия содержат ВСЕ слова запроса (любой порядок)."""
+        query = self.search_steps.text().strip().lower()
+        tokens = [t for t in query.split() if t]
+        matches = []
+        if tokens:
+            for i, m in enumerate(self.actions):
+                text = m.title().lower()
+                if all(tok in text for tok in tokens):
+                    matches.append(i)
+        self._search_matches = matches
+        return matches
+
+    def _search_step(self, direction):
+        matches = self._search_matches or self._search_compute()
+        if not matches:
+            self.lbl_search.setText("нет совпадений" if self.search_steps.text().strip()
+                                    else "")
+            return
+        if self._search_pos < 0:
+            # стартуем от текущего выделения в нужном направлении
+            cur = self.list.currentRow()
+            if direction > 0:
+                nxt = next((k for k, idx in enumerate(matches) if idx > cur), 0)
+            else:
+                prevs = [k for k, idx in enumerate(matches) if idx < cur]
+                nxt = prevs[-1] if prevs else len(matches) - 1
+            self._search_pos = nxt
+        else:
+            self._search_pos = (self._search_pos + direction) % len(matches)
+
+        idx = matches[self._search_pos]
+        self.list.setCurrentRow(idx)
+        self.list.scrollToItem(self.list.item(idx))
+        self.lbl_search.setText(f"{self._search_pos + 1}/{len(matches)}")
+
+    def _search_next(self):
+        self._search_step(+1)
+
+    def _search_prev(self):
+        self._search_step(-1)
+
     def _step_text(self, index):
         """Полный текст элемента списка: номер + отступ + префиксы + заголовок."""
         model = self.actions[index]
@@ -606,7 +744,8 @@ class MainWindow(QMainWindow):
         indent = "    " * self._level_at(index)
         else_outdent = "  " if t == "else" else ""
         prefix = "⊘ " if not model.enabled else ""
-        return f"{index + 1}. {indent}{else_outdent}{prefix}{model.title()}"
+        bp = "🔴 " if getattr(model, "breakpoint", False) else ""
+        return f"{index + 1}. {indent}{else_outdent}{bp}{prefix}{model.title()}"
 
     # ── Выбор шага ───────────────────────────────────────────────────
     def _on_select(self, row):
@@ -691,6 +830,70 @@ class MainWindow(QMainWindow):
         row = self.list.currentRow()
         insert_at = row + 1 if row >= 0 else len(self.actions)
         self._add_action_at(action_type, insert_at)
+
+    def _insert_sequence(self, name):
+        """Вставить сохранённую последовательность, развернув в обычные шаги."""
+        from app.ui import sequences_store
+        steps = sequences_store.get(name)
+        if not steps:
+            return
+        if self.current_index is not None and 0 <= self.current_index < len(self.actions):
+            self.editor.apply()
+
+        row = self.list.currentRow()
+        insert_at = row + 1 if row >= 0 else len(self.actions)
+        insert_at = max(0, min(insert_at, len(self.actions)))
+
+        added = 0
+        for step in steps:
+            try:
+                model = ActionModel.from_dict(step)
+            except Exception:
+                continue
+            # у шагов клика сбрасываем превью — получат свой уникальный при открытии
+            if model.action_type == "window_click_xy":
+                model.params["preview"] = ""
+            self.actions.insert(insert_at + added, model)
+            added += 1
+
+        self._refresh_list()
+        self.list.setCurrentRow(insert_at)
+        self.log.append(f"📦 Вставлена последовательность «{name}» ({added} шаг.)")
+
+    def _save_sequence(self, rows):
+        """Сохранить выделенные шаги как именованную последовательность."""
+        from PyQt5.QtWidgets import QInputDialog, QMessageBox
+        from app.ui import sequences_store
+        rows = sorted(r for r in rows if 0 <= r < len(self.actions))
+        if not rows:
+            return
+        self.editor.apply()
+
+        name, ok = QInputDialog.getText(
+            self, "Сохранить последовательность",
+            f"Имя для последовательности из {len(rows)} шаг.:"
+        )
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        if sequences_store.exists(name):
+            if QMessageBox.question(
+                self, "Перезаписать?",
+                f"Последовательность «{name}» уже есть. Перезаписать?"
+            ) != QMessageBox.Yes:
+                return
+
+        steps = []
+        for r in rows:
+            d = copy.deepcopy(self.actions[r].to_dict())
+            # чистим непереносимое: превью-снимки клика
+            if d.get("type") == "window_click_xy":
+                d.get("params", {})["preview"] = ""
+            steps.append(d)
+
+        sequences_store.add(name, steps)
+        self.palette.refresh_sequences()
+        self.log.append(f"📦 Сохранена последовательность «{name}» ({len(steps)} шаг.)")
 
     def _add_action_at(self, action_type, insert_at):
         """Универсальная вставка по индексу — для палитры и drag&drop."""
@@ -1059,6 +1262,32 @@ class MainWindow(QMainWindow):
     # ── Запуск / остановка ───────────────────────────────────────────
     def _run_scenario(self, start_from=0):
         self._launch(start_from=start_from)
+
+    def _dry_run(self):
+        """Сухой прогон: показать что будет выполнено, без побочных эффектов."""
+        if not self.actions:
+            QMessageBox.information(self, "Нет шагов", "Добавьте хотя бы один шаг.")
+            return
+        self.editor.apply()
+
+        dlg = DryRunDialog(self)
+        self._dry_dialog = dlg
+
+        runner = ScenarioRunner(
+            self.actions, self,
+            scenario_name=self._current_scenario_name() + "_dryrun",
+            dry_run=True,
+        )
+        self._dry_runner = runner
+        runner.log_line.connect(dlg.append_line)
+        runner.step_started.connect(self._highlight_step)
+        runner.finished_ok.connect(lambda: dlg.finish(True, runner.context))
+        runner.finished_error.connect(lambda _m: dlg.finish(False, runner.context))
+        runner.finished_ok.connect(self._clear_highlight)
+        runner.finished_error.connect(lambda _m: self._clear_highlight())
+
+        dlg.show()
+        runner.start()
 
     def _run_debug(self):
         self._launch(step_mode=True)
