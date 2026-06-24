@@ -204,6 +204,7 @@ class ColorCell(QWidget):
 
 def _build_colors_tab():
     """Вкладка «Цвета»: группы и действия в порядке палитры с выбором цвета."""
+    from PyQt5.QtCore import QSettings
     container = QWidget()
     outer = QVBoxLayout(container)
 
@@ -214,6 +215,13 @@ def _build_colors_tab():
     hint.setWordWrap(True)
     hint.setStyleSheet("color:#64748b; font-size:11px;")
     outer.addWidget(hint)
+
+    cb_depth = QCheckBox("Разводить вложенные блоки оттенками по глубине "
+                         "(ЕСЛИ/ЦИКЛ/ПОКА/ПОПРОБОВАТЬ)")
+    cb_depth.setChecked(
+        QSettings("AutoMouse", "RPA").value("depth_tint", False, type=bool)
+    )
+    outer.addWidget(cb_depth)
 
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -269,7 +277,7 @@ def _build_colors_tab():
     scroll.setWidget(inner)
     outer.addWidget(scroll, 1)
 
-    return container, group_cells, action_cells
+    return container, group_cells, action_cells, cb_depth
 
 
 class AppSettingsDialog(QDialog):
@@ -312,7 +320,7 @@ class AppSettingsDialog(QDialog):
         tabs.addTab(hk_tab, "Горячие клавиши")
 
         # ── Вкладка «Цвета» ───────────────────────────────────────────
-        colors_tab, self.group_cells, self.action_cells = _build_colors_tab()
+        colors_tab, self.group_cells, self.action_cells, self.cb_depth = _build_colors_tab()
         tabs.addTab(colors_tab, "Цвета")
 
         box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -335,4 +343,7 @@ class AppSettingsDialog(QDialog):
             "groups":  {g: c.value() for g, c in self.group_cells.items()},
             "actions": {t: c.value() for t, c in self.action_cells.items()},
         })
+        # развод вложенных блоков оттенками
+        from PyQt5.QtCore import QSettings
+        QSettings("AutoMouse", "RPA").setValue("depth_tint", self.cb_depth.isChecked())
         return result

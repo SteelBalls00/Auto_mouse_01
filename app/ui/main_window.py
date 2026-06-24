@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         # Восстановление сохранённой темы
         self._settings = QSettings("AutoMouse", "RPA")
         dark = self._settings.value("dark_theme", False, type=bool)
+        self._depth_tint = self._settings.value("depth_tint", False, type=bool)
         self.btn_theme.setChecked(dark)
 
         self._apply_theme(dark)
@@ -476,6 +477,7 @@ class MainWindow(QMainWindow):
             dlg.save_to_file()
             self._apply_hotkeys()
             colors_store.reload()
+            self._depth_tint = self._settings.value("depth_tint", False, type=bool)
             self._refresh_list()
             self.log.append("⚙ Настройки обновлены (хоткеи и цвета применены)")
 
@@ -614,7 +616,7 @@ class MainWindow(QMainWindow):
                 item.setSizeHint(QSize(0, row_h * 2 + 8))   # ~двойная высота
             item.setFont(font)
 
-            self._style_item(item, model)
+            self._style_item(item, model, index=i)
             self.list.addItem(item)
 
         self.list.blockSignals(False)
@@ -625,10 +627,54 @@ class MainWindow(QMainWindow):
             self.list.setCurrentRow(len(self.actions) - 1)
         self.vars_tree.rebuild(self.actions)
 
-    def _style_item(self, item, model, highlighted=False):
+    # Парные управляющие блоки, чей цвет разводится по глубине вложенности
+    _BLOCK_TINT_TYPES = {
+        "if_start", "else", "end_if",
+        "for_each_start", "end_for",
+        "while_start", "end_while",
+        "repeat_start", "end_repeat",
+        "try_start", "catch", "end_try",
+    }
+
+    def _block_depth(self, index):
+        """Глубина блока для окраски: как _level_at, но else/catch приравнены к
+        границе блока, чтобы открытие, середина и закрытие пары были одного цвета."""
+        level = 0
+        for i in range(index):
+            t = self.actions[i].action_type
+            if t in ("if_start", "for_each_start", "while_start", "repeat_start", "try_start"):
+                level += 1
+            if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try"):
+                level = max(0, level - 1)
+        t = self.actions[index].action_type
+        if t in ("end_if", "end_for", "end_while", "end_repeat", "end_try", "else", "catch"):
+            level = max(0, level - 1)
+        return level
+
+    @staticmethod
+    def _tint_by_depth(hexcolor, depth):
+        """Сдвинуть тон цвета по глубине, сохранив насыщенность и яркость.
+        Соседние уровни расходятся влево/вправо от базового тона."""
+        if depth <= 0:
+            return hexcolor
+        c = QColor(hexcolor)
+        if not c.isValid():
+            return hexcolor
+        h, s, v, a = c.getHsv()
+        if h < 0:                      # серый/ахроматичный — тон менять нечем
+            return hexcolor
+        step = 18
+        k = (depth + 1) // 2
+        sign = 1 if (depth % 2 == 1) else -1
+        new_h = (h + sign * k * step) % 360
+        c.setHsv(new_h, s, v, a)
+        return c.name()
+
+    def _style_item(self, item, model, highlighted=False, index=None):
         """Единая окраска строки: фон + контрастный текст (светлая и тёмная тема).
         Цвет берётся из пользовательских настроек (действие→группа), иначе из
-        встроенных дефолтов управляющих блоков."""
+        встроенных дефолтов управляющих блоков. Для парных блоков при включённой
+        опции тон сдвигается по глубине вложенности."""
         t = model.action_type
 
         if highlighted:
@@ -639,6 +685,10 @@ class MainWindow(QMainWindow):
                 bg = QColor("#fde68a")
         else:
             eff = colors_store.resolve(t)
+            # развод вложенных блоков оттенками по глубине
+            if (eff and getattr(self, "_depth_tint", False)
+                    and t in self._BLOCK_TINT_TYPES and index is not None):
+                eff = self._tint_by_depth(eff, self._block_depth(index))
             bg = QColor(eff) if eff else None
             if bg is not None and not bg.isValid():
                 bg = None
@@ -661,12 +711,12 @@ class MainWindow(QMainWindow):
         for i in range(self.list.count()):
             if 0 <= i < len(self.actions):
                 self._style_item(self.list.item(i), self.actions[i],
-                                  highlighted=(i == index))
+                                  highlighted=(i == index), index=i)
 
     def _clear_highlight(self):
         for i in range(self.list.count()):
             if 0 <= i < len(self.actions):
-                self._style_item(self.list.item(i), self.actions[i])
+                self._style_item(self.list.item(i), self.actions[i], index=i)
 
     # ── Отступы / текст шага ─────────────────────────────────────────
     def _level_at(self, index):
