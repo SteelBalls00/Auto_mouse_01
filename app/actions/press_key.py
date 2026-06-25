@@ -16,6 +16,7 @@ KNOWN_KEYS = [
 class PressKeyAction(Action):
     name = "Нажатие клавиши"
     param_labels = {
+        "desc":     "Описание (в лог)",
         "key":      "Клавиша",
         "combo":    "Комбинация (ctrl+c, alt+f4, …)",
         "times":    "Количество нажатий",

@@ -19,6 +19,8 @@ class SqlQueryManyAction(Action):
     }
 
     def execute(self, context):
+        from app.actions.firebird_client import ensure_loaded
+        ensure_loaded()
         import fdb
 
         config_path = self.params.get("config", "")
@@ -39,7 +41,11 @@ class SqlQueryManyAction(Action):
         )
         try:
             cur = con.cursor()
-            cur.execute(self.params.get("query", "").strip())
+            query = self.params.get("query", "").strip()
+            log = context.get("_log")
+            if log and query:
+                log(f"🗄 SQL: {' '.join(query.split())}")
+            cur.execute(query)
             rows = cur.fetchall()
 
             cur_cols  = [d[0] for d in cur.description] if cur.description else []

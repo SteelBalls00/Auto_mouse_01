@@ -106,7 +106,7 @@ ACTION_REGISTRY = {
     ),
     "press_key": (
         PressKeyAction,
-        {"key": "enter", "combo": "", "times": 1, "delay_ms": 0}
+        {"desc": "", "key": "enter", "combo": "", "times": 1, "delay_ms": 0}
     ),
     "if_start": (
         IfStartAction,
@@ -186,7 +186,7 @@ ACTION_REGISTRY = {
     ),
     "window_click_element": (
         WindowClickElementAction,
-        {
+        {"desc": "", 
             "window_var":   "",
             "auto_id":      "",
             "control_type": "",

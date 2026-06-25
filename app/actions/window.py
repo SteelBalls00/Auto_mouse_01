@@ -31,9 +31,12 @@ class FindWindowAction(Action):
         "class_name":   "Класс окна",
         "process_name": "Имя процесса (например app.exe)",
         "timeout":      "Таймаут (сек)",
+        "on_missing":   "Если окно не найдено",
+        "desc":         "Описание (в лог)",
     }
     param_options = {
         "backend": ["win32", "uia"],
+        "on_missing": ["ошибка", "предупреждение"],
     }
 
     def execute(self, context):
@@ -46,14 +49,35 @@ class FindWindowAction(Action):
         class_name   = self.params.get("class_name", "").strip() or None
         process_name = self.params.get("process_name", "").strip() or None
         timeout      = float(self.params.get("timeout", 10))
+        on_missing   = (self.params.get("on_missing") or "ошибка").strip()
+        log          = context.get("_log")
 
         spec = _find_window_spec(backend, title, class_name, process_name)
-        spec.wait("exists ready", timeout=timeout)
+        try:
+            spec.wait("exists ready", timeout=timeout)
+        except Exception:
+            # окно не появилось за таймаут
+            crit = "; ".join(p for p in [
+                f"заголовок~'{title}'" if title else "",
+                f"класс='{class_name}'" if class_name else "",
+                f"процесс='{process_name}'" if process_name else "",
+            ] if p)
+            context[var_name] = {"found": "0"}
+            if on_missing == "предупреждение":
+                if log:
+                    log(f"⚠ Окно не найдено ({crit}) — продолжаю, "
+                        f"{{{var_name}.found}} = 0")
+                return
+            raise RuntimeError(f"Окно не найдено за {timeout:.0f} c ({crit})")
 
         wrapper = spec.wrapper_object()
         rect    = wrapper.rectangle()
+        if log:
+            log(f"🪟 Найдено окно «{wrapper.window_text()}» "
+                f"[{rect.left},{rect.top} {rect.width()}×{rect.height()}]")
 
         context[var_name] = {
+            "found":  "1",
             "title":  wrapper.window_text(),
             "class":  wrapper.class_name(),
             "left":   rect.left,
@@ -74,7 +98,7 @@ class FindWindowAction(Action):
         var_name = (self.params.get("var_name") or "").strip()
         if not var_name:
             return None
-        fields = ["title", "class", "left", "top", "right", "bottom", "width", "height"]
+        fields = ["found", "title", "class", "left", "top", "right", "bottom", "width", "height"]
         return {
             "label": var_name,
             "children": [
@@ -201,6 +225,7 @@ class WindowClickElementAction(Action):
     name = "Клик по элементу окна"
     icon = "🔘"
     param_labels = {
+        "desc":       "Описание (в лог)",
         "window_var":   "Переменная окна",
         "auto_id":      "AutomationId (только uia)",
         "control_type": "Тип контрола (uia: Button; win32: оставить пустым)",

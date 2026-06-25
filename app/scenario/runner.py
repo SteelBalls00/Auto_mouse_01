@@ -192,6 +192,14 @@ class ScenarioRunner(QThread):
         except Exception as e:
             self._log(f"  ⚠ не удалось сделать снимок ошибки: {e}")
 
+    def _desc_suffix(self, model):
+        """Подпись описания блока/действия для лога (если задано поле desc)."""
+        try:
+            d = (model.params.get("desc") or "").strip()
+        except Exception:
+            d = ""
+        return f"   — {d}" if d else ""
+
     def _main_loop(self):
         try:
             pairs = self._build_pairs()
@@ -283,7 +291,7 @@ class ScenarioRunner(QThread):
                     "try_start", "catch", "end_try",
             ):
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}] ⊘ Пропущено (отключено)")
+                self._log(f"[{i + 1}] ⊘ Пропущено (отключено): {ACTION_REGISTRY[t][0].name}{self._desc_suffix(model)}")
                 i += 1
                 continue
 
@@ -296,7 +304,7 @@ class ScenarioRunner(QThread):
                     self.finished_error.emit(str(e))
                     return
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}] ЕСЛИ → {cond}")
+                self._log(f"[{i + 1}] ЕСЛИ → {cond}{self._desc_suffix(model)}")
                 log_substitutions(model.params, self.context)
                 if cond:
                     i += 1
@@ -313,7 +321,7 @@ class ScenarioRunner(QThread):
 
             elif t == "try_start":
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}] 🛡 ПОПРОБОВАТЬ")
+                self._log(f"[{i + 1}] 🛡 ПОПРОБОВАТЬ{self._desc_suffix(model)}")
                 info = pairs[i]
                 try_stack.append({
                     "start": i,
@@ -366,7 +374,7 @@ class ScenarioRunner(QThread):
                 self.step_started.emit(i)
                 self._log(
                     f"[{i + 1}] ЦИКЛ '{loop_name}' по '{source_name}' "
-                    f"({len(items)} элементов)"
+                    f"({len(items)} элементов){self._desc_suffix(model)}"
                 )
 
                 if not items:
@@ -391,7 +399,7 @@ class ScenarioRunner(QThread):
                 times = int(model.params.get("times", 1) or 1)
                 end_idx = pairs[i]["end"]
                 self.step_started.emit(i)
-                self._log(f"[{i + 1}] ПОВТОРИТЬ {times} раз")
+                self._log(f"[{i + 1}] ПОВТОРИТЬ {times} раз{self._desc_suffix(model)}")
 
                 if times <= 0:
                     i = end_idx + 1
@@ -508,7 +516,7 @@ class ScenarioRunner(QThread):
                     self.finished_error.emit(msg)
                     return
 
-                self._log(f"[{i + 1}] ПОКА → True (итерация {w_state['iter']})")
+                self._log(f"[{i + 1}] ПОКА → True (итерация {w_state['iter']}){self._desc_suffix(model)}")
                 log_substitutions(model.params, self.context)
                 i += 1
 
@@ -542,7 +550,7 @@ class ScenarioRunner(QThread):
                     continue
 
                 tag = "🧪 " if self._dry_run else ""
-                self._log(f"[{i + 1}/{len(self.actions)}] {tag}{action.name}...")
+                self._log(f"[{i + 1}/{len(self.actions)}] {tag}{action.name}{self._desc_suffix(model)}...")
 
                 try:
                     action.execute_with_resolved(self.context)

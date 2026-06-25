@@ -19,6 +19,8 @@ class SqlQueryAction(Action):
     }
 
     def execute(self, context):
+        from app.actions.firebird_client import ensure_loaded
+        ensure_loaded()
         import fdb
 
         config_path = self.params.get("config", "")
@@ -41,6 +43,10 @@ class SqlQueryAction(Action):
         try:
             cur = con.cursor()
             query = self.params.get("query", "").strip()
+            log = context.get("_log")
+            if log and query:
+                compact = " ".join(query.split())   # схлопываем переносы/отступы
+                log(f"🗄 SQL: {compact}")
             cur.execute(query)
 
             is_select = query.upper().lstrip().startswith("SELECT")

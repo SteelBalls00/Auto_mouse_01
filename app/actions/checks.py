@@ -73,6 +73,13 @@ class CheckProcessAction(Action):
 
         context[check_name] = {"running": running, "pid": pid}
 
+        log = context.get("_log")
+        if log:
+            if running:
+                log(f"🔎 Процесс «{target}» запущен (pid={pid}) — running=1")
+            else:
+                log(f"🔎 Процесс «{target}» не запущен — running=0")
+
     def output_vars(self):
         check_name = (self.params.get("check_name") or "").strip()
         if not check_name:
@@ -124,6 +131,11 @@ class CheckWindowAction(Action):
 
         user32.EnumWindows(EnumWindowsProc(cb), 0)
         context[check_name] = {"exists": found["v"]}
+
+        log = context.get("_log")
+        if log:
+            log(f"🪟 Окно с заголовком ~«{title}»: "
+                + ("найдено — exists=1" if found["v"] else "не найдено — exists=0"))
 
     def output_vars(self):
         check_name = (self.params.get("check_name") or "").strip()
