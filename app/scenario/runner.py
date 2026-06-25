@@ -224,6 +224,20 @@ class ScenarioRunner(QThread):
                 self.finished_error.emit("Остановлено")
                 return
 
+            # ── Досрочное завершение всего сценария (действие «Завершить сценарий») ──
+            stop_info = self.context.get("_stop_scenario")
+            if stop_info:
+                reason = stop_info.get("reason") or ""
+                if stop_info.get("as_error"):
+                    self._log(f"🏁 Сценарий завершён досрочно (ошибка)"
+                              + (f": {reason}" if reason else ""), "error")
+                    self.finished_error.emit(reason or "Завершено досрочно")
+                else:
+                    self._log(f"🏁 Сценарий завершён досрочно"
+                              + (f": {reason}" if reason else ""))
+                    self.finished_ok.emit()
+                return
+
             # ── Отладка по шагам ─────────────────────────────────────
             # Флаг из контекста (действия «Перейти/Выйти из пошагового режима»)
             # переопределяет режим запуска, если он задан.

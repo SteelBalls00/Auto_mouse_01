@@ -11,6 +11,7 @@ from app.actions.cmd import CmdAction
 from app.actions.sql import SqlQueryAction
 from app.actions.press_key import PressKeyAction
 from app.actions.control_flow import IfStartAction, ElseAction, EndIfAction
+from app.actions.stop_scenario import StopScenarioAction
 from app.actions.uni_stat import UniStat2003Action
 from app.actions.sql_many import SqlQueryManyAction
 from app.actions.loop import (
@@ -154,6 +155,10 @@ ACTION_REGISTRY = {
     "break": (
         BreakAction,
         {}
+    ),
+    "stop_scenario": (
+        StopScenarioAction,
+        {"reason": "", "mode": "успех"}
     ),
     "continue": (
         ContinueAction,

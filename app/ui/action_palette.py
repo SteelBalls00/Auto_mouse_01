@@ -37,7 +37,7 @@ ACTION_GROUPS = [
         "while_start", "end_while",
         "repeat_start", "end_repeat",
         "try_start", "catch", "end_try",
-        "break", "continue",
+        "break", "continue", "stop_scenario",
         "run_scenario",
     ]),
     ("Базы данных", [
