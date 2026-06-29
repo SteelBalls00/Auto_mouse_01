@@ -173,6 +173,8 @@ ACTION_REGISTRY = {
             "class_name":   "",
             "process_name": "",
             "timeout":      10,
+            "on_missing":   "ошибка",
+            "desc":         "",
         }
     ),
     "window_focus": (
