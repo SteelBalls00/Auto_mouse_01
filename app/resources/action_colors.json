@@ -1,0 +1,16 @@
+{
+  "groups": {
+    "Основное": "#f4f2fd",
+    "Окна и элементы": "#efffed",
+    "Базы данных": "#aad3ff"
+  },
+  "actions": {
+    "run_program": "#f8d568",
+    "if_start": "#d0e6fd",
+    "else": "#d0e6fd",
+    "end_if": "#d0e6fd",
+    "while_start": "#f1fd8a",
+    "end_while": "#f1fd8a",
+    "continue": "#fdf2e0"
+  }
+}
