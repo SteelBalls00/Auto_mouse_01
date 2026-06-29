@@ -3,3 +3,5 @@
 /Сценарии/
 /app/resources/images/
 /build/
+*.spec
+*.zip
