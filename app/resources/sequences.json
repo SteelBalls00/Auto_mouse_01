@@ -1,0 +1,72 @@
+{
+  "Закрыть модуль ДО": [
+    {
+      "type": "separator",
+      "params": {
+        "text": "Закрываем Модуль ДО",
+        "color": "#ce0d5d"
+      }
+    },
+    {
+      "type": "check_process",
+      "params": {
+        "check_name": "Проверка_процесса_uni_doc_flow",
+        "process_name": "uni_doc_flow.exe"
+      }
+    },
+    {
+      "type": "if_start",
+      "params": {
+        "desc": "Закр. ДО",
+        "left": "{Проверка_процесса_uni_doc_flow.exe.running}",
+        "operator": ">",
+        "right": "0"
+      }
+    },
+    {
+      "type": "log_message",
+      "params": {
+        "message": "Завершение старых процессов в кол-ве: {Проверка_процесса_uni_doc_flow.running} (pid: ){Проверка_процесса_uni_doc_flow.pid}"
+      }
+    },
+    {
+      "type": "while_start",
+      "params": {
+        "desc": "Заверш. все ДО процессы",
+        "left": "{Проверка_процесса_uni_doc_flow.running}",
+        "operator": ">",
+        "right": "0",
+        "max_iter": 10000
+      }
+    },
+    {
+      "type": "kill_process",
+      "params": {
+        "by": "process_name",
+        "value": "uni_doc_flow.exe",
+        "result_name": "killed"
+      }
+    },
+    {
+      "type": "wait",
+      "params": {
+        "ms": 300
+      }
+    },
+    {
+      "type": "check_process",
+      "params": {
+        "check_name": "Проверка_процесса_uni_doc_flow",
+        "process_name": "uni_doc_flow.exe"
+      }
+    },
+    {
+      "type": "end_while",
+      "params": {}
+    },
+    {
+      "type": "end_if",
+      "params": {}
+    }
+  ]
+}
