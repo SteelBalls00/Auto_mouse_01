@@ -284,7 +284,7 @@ class MainWindow(QMainWindow):
             self._stop_scenario()
 
     def _validate_scenario(self):
-        """Проверить сценарий и показать замечания."""
+        """Проверить сценарий и показать замечания в изменяемом окне с прокруткой."""
         if not self.actions:
             QMessageBox.information(self, "Проверка", "Шагов нет.")
             return
@@ -300,30 +300,49 @@ class MainWindow(QMainWindow):
 
         errs = [x for x in issues if x[0] == "err"]
         warns = [x for x in issues if x[0] == "warn"]
-        lines = []
+
+        # ── Текст замечаний в HTML (с подсветкой и крупным шрифтом) ──
+        import html as _html
+        parts = []
         if errs:
-            lines.append(f"🔴 Ошибки ({len(errs)}):")
+            parts.append(f"<p style='color:#dc2626; font-weight:bold; margin:0 0 4px;'>"
+                         f"🔴 Ошибки ({len(errs)})</p><ul style='margin:0 0 12px;'>")
             for _, sno, text in errs:
                 where = f"шаг {sno}: " if sno else ""
-                lines.append(f"   • {where}{text}")
-            lines.append("")
+                parts.append(f"<li>{_html.escape(where)}{_html.escape(text)}</li>")
+            parts.append("</ul>")
         if warns:
-            lines.append(f"🟡 Предупреждения ({len(warns)}):")
+            parts.append(f"<p style='color:#b45309; font-weight:bold; margin:0 0 4px;'>"
+                         f"🟡 Предупреждения ({len(warns)})</p><ul style='margin:0;'>")
             for _, sno, text in warns:
                 where = f"шаг {sno}: " if sno else ""
-                lines.append(f"   • {where}{text}")
+                parts.append(f"<li>{_html.escape(where)}{_html.escape(text)}</li>")
+            parts.append("</ul>")
+        body_html = f"<div style='font-size:13px; line-height:1.5;'>{''.join(parts)}</div>"
 
-        box = QMessageBox(self)
-        box.setWindowTitle("Проверка сценария")
-        box.setIcon(QMessageBox.Warning if errs else QMessageBox.Information)
-        box.setText(f"Найдено замечаний: {len(issues)}")
-        box.setDetailedText("\n".join(lines))
-        # сразу разворачиваем детали
-        for b in box.buttons():
-            if box.buttonRole(b) == QMessageBox.ActionRole:
-                b.click()
-                break
-        box.exec_()
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QTextBrowser, QDialogButtonBox
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Проверка сценария")
+        dlg.resize(760, 520)                 # стартовый размер; окно можно тянуть мышью
+        dlg.setSizeGripEnabled(True)
+        lay = QVBoxLayout(dlg)
+
+        header = QLabel(f"Найдено замечаний: {len(issues)}  "
+                        f"(ошибок: {len(errs)}, предупреждений: {len(warns)})")
+        header.setStyleSheet("font-weight:bold; font-size:13px;")
+        lay.addWidget(header)
+
+        view = QTextBrowser()
+        view.setHtml(body_html)
+        lay.addWidget(view, 1)               # растягивается на всё окно
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok)
+        btns.accepted.connect(dlg.accept)
+        lay.addWidget(btns)
+
+        dlg.exec_()
 
     def _migrate_steps(self):
         """Дополнить все шаги недостающими параметрами из актуальных определений
